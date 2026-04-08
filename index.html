@@ -69,6 +69,18 @@
     const digColumns = 20;
     const worldWidth = digColumns; // fully diggable width
     const worldHeight = 100;
+    const stoneLayerStartY = 8;
+    const hollowStartY = stoneLayerStartY + 10;
+    const hollowHeight = 3;
+    const cashMachine = {
+      x: Math.floor(worldWidth / 2) - 1,
+      y: hollowStartY + 1,
+      width: 2,
+      height: 2,
+      suckTimer: 0,
+      suckInterval: 0.12,
+      suckRadius: 2.4,
+    };
 
     // Asset setup
     const assets = {
@@ -83,6 +95,7 @@
       grassBack: null,
       dirtBack: null,
       stoneBack: null,
+      cashMachine: [],
       crime: [],
       gauge: null,
       idle: [],
@@ -137,6 +150,12 @@
       assets.stoneBack = await loadImage("assets/stone_back.png", (img) => {
         console.info(`石背景タイル画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
       });
+      assets.cashMachine = await Promise.all([
+        loadImage("assets/cash machine1.png"),
+        loadImage("assets/cash machine2.png"),
+        loadImage("assets/cash machine3.png"),
+        loadImage("assets/cash machine4.png"),
+      ]);
       assets.gauge = await loadImage("assets/gauge1.png", (img) => {
         console.info(`ゲージ画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
       });
@@ -210,7 +229,16 @@
           tiles[x][y] = 0; // surface air
         } else if (y === 3) {
           tiles[x][y] = 2; // grass surface
-        } else if (y >= 8) {
+        } else if (y >= hollowStartY && y < hollowStartY + hollowHeight) {
+          if (x === 0 || x === worldWidth - 1) {
+            const r = Math.random();
+            if (r < 0.1) tiles[x][y] = 6; // stone2
+            else if (r < 0.2) tiles[x][y] = 7; // stone3
+            else tiles[x][y] = 5; // base stone wall
+          } else {
+            tiles[x][y] = 0; // hollow chamber
+          }
+        } else if (y >= stoneLayerStartY) {
           const r = Math.random();
           if (r < 0.1) tiles[x][y] = 6; // stone2
           else if (r < 0.2) tiles[x][y] = 7; // stone3
@@ -226,6 +254,11 @@
         }
       }
     }
+    for (let x = 1; x < worldWidth - 1; x++) {
+      for (let y = hollowStartY; y < hollowStartY + hollowHeight; y++) {
+        backgroundTiles[x][y] = BackgroundType.Stone;
+      }
+    }
 
     // Player state (center-based position in tile units)
     const player = {
@@ -236,6 +269,7 @@
       vx: 0,
       vy: 0,
       carry: 0,
+      digPower: 1,
       onGround: false,
       climbing: false,
       facing: 1,
@@ -343,6 +377,10 @@
 
     function clamp(value, min, max) {
       return Math.max(min, Math.min(max, value));
+    }
+
+    function getDigPower() {
+      return Math.max(1, player.digPower || 1);
     }
 
     function getCanvasPoint(evt) {
@@ -524,8 +562,9 @@
       const targetAccelRight = keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0;
       const moveDir = targetAccel + targetAccelRight;
       const shiftHeld = keys.has("ShiftLeft") || keys.has("ShiftRight");
-      const accelMag = shiftHeld ? dashAccel : moveAccel;
-      const maxVel = shiftHeld ? dashMaxSpeed : maxSpeed;
+      const speedPower = getDigPower();
+      const accelMag = (shiftHeld ? dashAccel : moveAccel) * speedPower;
+      const maxVel = (shiftHeld ? dashMaxSpeed : maxSpeed) * speedPower;
       const accel = moveDir * accelMag;
       player.vx += accel * dt;
 
@@ -657,8 +696,9 @@
 
     function tileBreakDuration(x, y) {
       const t = (tiles[x]?.[y] || 0);
-      if (t >= 5) return breakTime * 1.6; // stone types
-      return breakTime;
+      const power = getDigPower();
+      const base = t >= 5 ? breakTime * 1.6 : breakTime; // stone types
+      return base / power;
     }
 
     function resourceKeyFromTile(tileType) {
@@ -840,7 +880,48 @@
         downDuration,
         size,
         kind,
+        transferKind: "inventory",
       });
+    }
+
+    function spawnMachineSuction(kind = "dirt") {
+      const gaugeKey = kind === "stone" ? "stone" : "dirt";
+      if (bagGauge.amount[gaugeKey] <= 0) return false;
+      const target = worldToScreen(cashMachine.x + cashMachine.width / 2, cashMachine.y + cashMachine.height / 2);
+      const slot = gaugeSlot(gaugeKey);
+      bagGauge.amount[gaugeKey] -= 1;
+      flyingDirts.push({
+        start: { x: cashMachine.x + cashMachine.width / 2, y: cashMachine.y + cashMachine.height / 2 },
+        startScreen: { x: slot.x + bagGauge.w / 2, y: slot.y + bagGauge.h / 2 },
+        target,
+        arcOffsetX: (Math.random() - 0.5) * 24,
+        arcOffsetY: -(30 + Math.random() * 30),
+        t: 0,
+        upDuration: 0.16,
+        downDuration: 0.28,
+        size: tileSize * (0.28 + Math.random() * 0.18),
+        kind,
+        transferKind: "machine",
+      });
+      return true;
+    }
+
+    function updateCashMachine(dt) {
+      const centerX = cashMachine.x + cashMachine.width / 2;
+      const centerY = cashMachine.y + cashMachine.height / 2;
+      const distance = Math.hypot(player.x - centerX, player.y - centerY);
+      const closeEnough = distance <= cashMachine.suckRadius;
+      if (!closeEnough) {
+        cashMachine.suckTimer = 0;
+        return;
+      }
+      cashMachine.suckTimer += dt;
+      while (cashMachine.suckTimer >= cashMachine.suckInterval) {
+        cashMachine.suckTimer -= cashMachine.suckInterval;
+        const kind = bagGauge.amount.dirt > 0 ? "dirt" : bagGauge.amount.stone > 0 ? "stone" : null;
+        if (!kind) break;
+        if (!spawnMachineSuction(kind)) break;
+      }
     }
 
     function depositDirt() {}
@@ -918,6 +999,7 @@
       }
       moveAndCollide(dt);
       updateDig(dt);
+      updateCashMachine(dt);
       updateFlyingDirts(dt);
       updateBumpRecovery(dt);
       updateAnimation(dt);
@@ -992,6 +1074,37 @@
       }
     }
 
+    function drawCashMachine() {
+      const frames = [
+        assets.cashMachine[0],
+        assets.cashMachine[1],
+        assets.cashMachine[2],
+        assets.cashMachine[3],
+      ];
+      const offsets = [
+        { x: 0, y: 0 },
+        { x: 0, y: 1 },
+        { x: 1, y: 1 },
+        { x: 1, y: 0 },
+      ];
+      ctx.save();
+      ctx.globalAlpha = 0.98;
+      for (let i = 0; i < frames.length; i++) {
+        const frame = frames[i];
+        const { x, y } = offsets[i];
+        const { x: sx, y: sy } = worldToScreen(cashMachine.x + x, cashMachine.y + y);
+        if (frame && frame.complete && frame.naturalWidth > 0) {
+          ctx.drawImage(frame, sx, sy, tileSize, tileSize);
+        } else {
+          ctx.fillStyle = "#334155";
+          ctx.fillRect(sx, sy, tileSize, tileSize);
+          ctx.strokeStyle = "#cbd5e1";
+          ctx.strokeRect(sx + 1, sy + 1, tileSize - 2, tileSize - 2);
+        }
+      }
+      ctx.restore();
+    }
+
     function drawPlayer() {
       const bottom = worldToScreen(player.x, player.y + player.h / 2);
       const spriteList =
@@ -1032,6 +1145,11 @@
         const total = dirt.upDuration + dirt.downDuration;
         if (dirt.t >= total) {
           const key = dirt.kind === "stone" ? "stone" : "dirt";
+          if (dirt.transferKind === "machine") {
+            player.digPower = Number((getDigPower() + 0.01).toFixed(2));
+            flyingDirts.splice(i, 1);
+            continue;
+          }
           if (bagGauge.amount[key] >= bagGauge.max) {
             flyingDirts.splice(i, 1);
             continue;
@@ -1314,6 +1432,7 @@
       drawBackground();
       drawBackgroundTiles();
       drawTiles();
+      drawCashMachine();
       drawBreakOverlay();
       drawBumpOverlays();
       drawPlayer();
@@ -1363,6 +1482,7 @@
           onGround: player.onGround,
           climbing: player.climbing,
           state: player.anim.state,
+          digPower: Number(getDigPower().toFixed(2)),
         },
         dig: {
           active: digState.active,
@@ -1380,6 +1500,11 @@
           moveActive: touchGesture.active && touchGesture.mode === "move",
           lockedDirection: touchGesture.lockedDirection,
           draggingMeter: dragState.active,
+        },
+        cashMachine: {
+          x: cashMachine.x,
+          y: cashMachine.y,
+          suckRadius: cashMachine.suckRadius,
         },
       });
     }
