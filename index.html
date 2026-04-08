@@ -1591,8 +1591,18 @@
     }
 
     function drawBackground() {
-      if (worldLayers.backdrop) {
-        ctx.drawImage(worldLayers.backdrop, 0, 0, viewWidth, viewHeight);
+      if (assets.background) {
+        const img = assets.background;
+        const scale = Math.max(
+          1,
+          Math.ceil(viewWidth / img.naturalWidth),
+          Math.ceil(viewHeight / img.naturalHeight)
+        );
+        const dw = img.naturalWidth * scale;
+        const dh = img.naturalHeight * scale;
+        const dx = Math.floor((viewWidth - dw) / 2);
+        const dy = Math.floor((viewHeight - dh) / 2);
+        ctx.drawImage(img, dx, dy, dw, dh);
         return;
       }
       ctx.fillStyle = "#0b1220";
