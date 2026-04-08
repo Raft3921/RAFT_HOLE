@@ -338,11 +338,12 @@
     let lastTime = performance.now();
 
     function resizeCanvas() {
-      dpr = window.devicePixelRatio || 1;
       viewWidth = window.innerWidth;
       viewHeight = window.innerHeight;
       const coarsePointer = window.matchMedia ? window.matchMedia("(pointer: coarse)").matches : false;
       mobileLayout = (navigator.maxTouchPoints > 0 || coarsePointer) && viewWidth < 1024;
+      const rawDpr = window.devicePixelRatio || 1;
+      dpr = mobileLayout ? Math.min(rawDpr, 1.5) : Math.min(rawDpr, 2);
       canvas.style.width = `${viewWidth}px`;
       canvas.style.height = `${viewHeight}px`;
       canvas.width = Math.floor(viewWidth * dpr);
