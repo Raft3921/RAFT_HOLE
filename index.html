@@ -342,27 +342,17 @@
           const type = tiles[x][y];
           if (type > 0) {
             const { x: sx, y: sy } = worldToScreen(x, y);
-            if (mobileLayout) {
-              ctx.fillStyle =
-                type === 2 ? "#22c55e" :
-                type >= 5 ? "#94a3b8" :
-                type === 3 ? "#b45309" :
-                type === 4 ? "#92400e" :
-                "#8b5a2b";
+            const drawImg = (img) => ctx.drawImage(img, sx, sy, tileSize, tileSize);
+            if (type === 2 && assets.grass) drawImg(assets.grass);
+            else if (type === 3 && assets.dirtFh) drawImg(assets.dirtFh);
+            else if (type === 4 && assets.dirtAlt) drawImg(assets.dirtAlt);
+            else if (type === 5 && assets.stone) drawImg(assets.stone);
+            else if (type === 6 && assets.stone2) drawImg(assets.stone2);
+            else if (type === 7 && assets.stone3) drawImg(assets.stone3);
+            else if (assets.dirt) drawImg(assets.dirt);
+            else {
+              ctx.fillStyle = tileFillColor(type, y);
               ctx.fillRect(sx, sy, tileSize, tileSize);
-            } else {
-              const drawImg = (img) => ctx.drawImage(img, sx, sy, tileSize, tileSize);
-              if (type === 2 && assets.grass) drawImg(assets.grass);
-              else if (type === 3 && assets.dirtFh) drawImg(assets.dirtFh);
-              else if (type === 4 && assets.dirtAlt) drawImg(assets.dirtAlt);
-              else if (type === 5 && assets.stone) drawImg(assets.stone);
-              else if (type === 6 && assets.stone2) drawImg(assets.stone2);
-              else if (type === 7 && assets.stone3) drawImg(assets.stone3);
-              else if (assets.dirt) drawImg(assets.dirt);
-              else {
-                ctx.fillStyle = tileFillColor(type, y);
-                ctx.fillRect(sx, sy, tileSize, tileSize);
-              }
             }
           }
         }
@@ -378,23 +368,15 @@
           const type = backgroundTiles[x][y];
           if (type === BackgroundType.None) continue;
           const { x: sx, y: sy } = worldToScreen(x, y);
-          if (mobileLayout) {
-            ctx.fillStyle =
-              type === BackgroundType.Grass ? "#14532d" :
-              type === BackgroundType.Stone ? "#334155" :
-              "#7c2d12";
-            ctx.fillRect(sx, sy, tileSize, tileSize);
+          let img = null;
+          if (type === BackgroundType.Grass) img = assets.grassBack;
+          else if (type === BackgroundType.Stone) img = assets.stoneBack;
+          else if (type === BackgroundType.Dirt) img = assets.dirtBack;
+          if (img) {
+            ctx.drawImage(img, sx, sy, tileSize, tileSize);
           } else {
-            let img = null;
-            if (type === BackgroundType.Grass) img = assets.grassBack;
-            else if (type === BackgroundType.Stone) img = assets.stoneBack;
-            else if (type === BackgroundType.Dirt) img = assets.dirtBack;
-            if (img) {
-              ctx.drawImage(img, sx, sy, tileSize, tileSize);
-            } else {
-              ctx.fillStyle = "rgba(255,255,255,0.02)";
-              ctx.fillRect(sx, sy, tileSize, tileSize);
-            }
+            ctx.fillStyle = "rgba(255,255,255,0.02)";
+            ctx.fillRect(sx, sy, tileSize, tileSize);
           }
         }
       }
@@ -1609,11 +1591,6 @@
     }
 
     function drawBackground() {
-      if (mobileLayout) {
-        ctx.fillStyle = "#0b1220";
-        ctx.fillRect(0, 0, viewWidth, viewHeight);
-        return;
-      }
       if (worldLayers.backdrop) {
         ctx.drawImage(worldLayers.backdrop, 0, 0, viewWidth, viewHeight);
         return;
