@@ -1,0 +1,1553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dig Down</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --dirt: #8b5a2b;
+      --dirt-shadow: #5d3b1a;
+      --player: #38bdf8;
+      --carry: #facc15;
+      --accent: #22d3ee;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      width: 100vw;
+      height: 100dvh;
+      overflow: hidden;
+      background: radial-gradient(circle at 30% 20%, #1e293b, #0b1220 60%), radial-gradient(circle at 80% 10%, #0c1930, #0b1220 55%), #0b1220;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      touch-action: none;
+      overscroll-behavior: none;
+    }
+    canvas {
+      width: 100vw;
+      height: 100dvh;
+      display: block;
+      image-rendering: crisp-edges;
+      image-rendering: pixelated;
+      background: linear-gradient(#0b1220, #0f172a 40%);
+      touch-action: none;
+    }
+    @media (max-width: 768px), (max-height: 768px) {
+      body {
+        background: radial-gradient(circle at 30% 20%, #1f2f4a, #0b1220 58%), radial-gradient(circle at 80% 0%, #102040, #0b1220 52%), #0b1220;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    // World config
+    let tileSize = 48;
+    let dpr = window.devicePixelRatio || 1;
+    let viewWidth = window.innerWidth;
+    let viewHeight = window.innerHeight;
+    let worldOffsetX = 0;
+    const camera = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      lookAheadX: 0,
+      lookAheadY: 0,
+      smoothing: 0.08,
+      zoom: 2.8,
+      shakeX: 0,
+    };
+    const digColumns = 20;
+    const worldWidth = digColumns; // fully diggable width
+    const worldHeight = 100;
+
+    // Asset setup
+    const assets = {
+      background: null,
+      dirt: null,
+      dirtAlt: null,
+      dirtFh: null,
+      grass: null,
+      stone: null,
+      stone2: null,
+      stone3: null,
+      grassBack: null,
+      dirtBack: null,
+      stoneBack: null,
+      crime: [],
+      gauge: null,
+      idle: [],
+      run: [],
+      crouch: [],
+      dust: [],
+    };
+
+    function loadImage(src, onLoad) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          onLoad?.(img);
+          resolve(img);
+        };
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
+    }
+
+    async function loadAssets() {
+      assets.background = await loadImage("assets/background.png", (img) => {
+        console.info(`背景画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.dirt = await loadImage("assets/dirt.png", (img) => {
+        console.info(`土タイル画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.dirtAlt = await loadImage("assets/dirt2.png", (img) => {
+        console.info(`土バリエーション dirt2 サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.dirtFh = await loadImage("assets/dirt_fh.png", (img) => {
+        console.info(`土バリエーション dirt_fh サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.grass = await loadImage("assets/grass.png", (img) => {
+        console.info(`草タイル画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.stone = await loadImage("assets/stone.png", (img) => {
+        console.info(`石タイル画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.stone2 = await loadImage("assets/stone2.png", (img) => {
+        console.info(`石バリエーション stone2 サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.stone3 = await loadImage("assets/stone3.png", (img) => {
+        console.info(`石バリエーション stone3 サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.grassBack = await loadImage("assets/grass_back.png", (img) => {
+        console.info(`草背景タイル画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.dirtBack = await loadImage("assets/dirt_back.png", (img) => {
+        console.info(`土背景タイル画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.stoneBack = await loadImage("assets/stone_back.png", (img) => {
+        console.info(`石背景タイル画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.gauge = await loadImage("assets/gauge1.png", (img) => {
+        console.info(`ゲージ画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      const crimePromises = Array.from({ length: 4 }, (_, i) =>
+        loadImage(`assets/crime${i + 1}.png`, (img) => {
+          if (i === 0) console.info(`クライム crime フレームサイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+        })
+      );
+
+      const idlePromises = Array.from({ length: 3 }, (_, i) =>
+        loadImage(`assets/idle${i + 1}.png`, (img) => {
+          if (i === 0) console.info(`プレイヤー idle フレームサイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+        })
+      );
+      const runPromises = Array.from({ length: 6 }, (_, i) =>
+        loadImage(`assets/run${i + 1}.png`, (img) => {
+          if (i === 0) console.info(`プレイヤー run フレームサイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+        })
+      );
+      const crouchPromises = Array.from({ length: 2 }, (_, i) =>
+        loadImage(`assets/crouch${i + 1}.png`, (img) => {
+          if (i === 0) console.info(`プレイヤー crouch フレームサイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+        })
+      );
+      const dustPromises = Array.from({ length: 4 }, (_, i) =>
+        loadImage(`assets/dust${i + 1}.png`)
+      );
+      const [crimeFrames, idleFrames, runFrames, crouchFrames, dustFrames] = await Promise.all([
+        Promise.all(crimePromises),
+        Promise.all(idlePromises),
+        Promise.all(runPromises),
+        Promise.all(crouchPromises),
+        Promise.all(dustPromises),
+      ]);
+      assets.crime = crimeFrames.filter(Boolean);
+      assets.idle = idleFrames.filter(Boolean);
+      assets.run = runFrames.filter(Boolean);
+      assets.crouch = crouchFrames.filter(Boolean);
+      assets.dust = dustFrames.filter(Boolean);
+    }
+    const assetReady = loadAssets();
+
+    // tile types: 0 = air, 1 = dirt, 2 = grass, 3 = dirt_fh, 4 = dirt2, 5 = stone, 6 = stone2, 7 = stone3
+    const tiles = Array.from({ length: worldWidth }, () => Array(worldHeight).fill(0));
+    const BackgroundType = {
+      None: 0,
+      Grass: 1,
+      Dirt: 2,
+      Stone: 3,
+    };
+    const backgroundTiles = Array.from({ length: worldWidth }, () => Array(worldHeight).fill(BackgroundType.None));
+
+    function backgroundTypeFromTile(tileType) {
+      if (tileType === 2) return BackgroundType.Grass;
+      if (tileType === 1 || tileType === 3 || tileType === 4) return BackgroundType.Dirt;
+      if (tileType === 5 || tileType === 6 || tileType === 7) return BackgroundType.Stone;
+      return BackgroundType.None;
+    }
+
+    function setBackgroundTile(x, y, tileType) {
+      if (x < 0 || y < 0 || x >= worldWidth || y >= worldHeight) return;
+      if ((backgroundTiles[x][y] ?? BackgroundType.None) !== BackgroundType.None) return; // preserve original back
+      const bg = backgroundTypeFromTile(tileType);
+      if (bg === BackgroundType.None) return;
+      backgroundTiles[x][y] = bg;
+    }
+
+    for (let x = 0; x < worldWidth; x++) {
+      for (let y = 0; y < worldHeight; y++) {
+        if (y < 3) {
+          tiles[x][y] = 0; // surface air
+        } else if (y === 3) {
+          tiles[x][y] = 2; // grass surface
+        } else if (y >= 8) {
+          const r = Math.random();
+          if (r < 0.1) tiles[x][y] = 6; // stone2
+          else if (r < 0.2) tiles[x][y] = 7; // stone3
+          else tiles[x][y] = 5; // base stone
+        } else {
+          const r = Math.random();
+          if (r < 0.07) tiles[x][y] = 3; // dirt_fh occasionally
+          else if (r < 0.14) tiles[x][y] = 4; // dirt2 occasionally
+          else tiles[x][y] = 1; // base dirt
+        }
+        if (tiles[x][y] > 0) {
+          setBackgroundTile(x, y, tiles[x][y]); // remember original tile type for back layer
+        }
+      }
+    }
+
+    // Player state (center-based position in tile units)
+    const player = {
+      x: Math.floor(digColumns / 2) + 0.5,
+      y: 1.6,
+      w: 0.55, // slimmer hitbox
+      h: 0.82, // slightly shorter
+      vx: 0,
+      vy: 0,
+      carry: 0,
+      onGround: false,
+      climbing: false,
+      facing: 1,
+      anim: { state: "idle", frame: 0, timer: 0 },
+      crouching: false,
+      renderW: 0.8, // visual width (separate from collision)
+      renderH: 0.9, // visual height
+    };
+
+    // Physics tuning
+    const gravity = 22;
+    const moveAccel = 28;
+    const dashAccel = 40;
+    const maxSpeed = 4.2;
+    const dashMaxSpeed = 6.2;
+    const friction = 18;
+    const airFriction = 4;
+    const jumpSpeed = 10;
+    const breakTime = 0.55; // base seconds of hold to break dirt
+    const dashDustInterval = 0.1;
+    const clickDigThreshold = 0.18; // seconds; shorter press converts to auto-dig
+    const climbSpeed = 3.8;
+
+    const keys = new Set();
+    const touchKeyCodes = new Set();
+    let digState = {
+      active: false,
+      progress: 0,
+      target: null,
+      mode: "hold",
+      startedAt: 0,
+    };
+    const flyingDirts = [];
+    const dustParticles = [];
+    let dashActive = false;
+    let dashDustTimer = 0;
+    const bumpDigProgress = new Map(); // key -> { value, cooldown }
+    const placedTiles = new Set(); // tracks player-placed blocks
+    let facingLockTimer = 0;
+    const bounceLock = { active: false, startX: 0 };
+    let crouchSmashTimer = 0;
+    const dragState = {
+      active: false,
+      type: null, // "dirt" | "stone"
+      screenX: 0,
+      screenY: 0,
+      pointerId: null,
+    };
+    const touchGesture = {
+      active: false,
+      pointerId: null,
+      startX: 0,
+      startY: 0,
+      lastX: 0,
+      lastY: 0,
+      mode: "idle",
+      lockedDirection: null,
+      moved: false,
+    };
+    let mobileLayout = false;
+    const screenShake = { time: 0, duration: 0, amplitude: 0 };
+
+    let lastTime = performance.now();
+
+    function resizeCanvas() {
+      dpr = window.devicePixelRatio || 1;
+      viewWidth = window.innerWidth;
+      viewHeight = window.innerHeight;
+      const coarsePointer = window.matchMedia ? window.matchMedia("(pointer: coarse)").matches : false;
+      mobileLayout = (navigator.maxTouchPoints > 0 || coarsePointer) && viewWidth < 1024;
+      canvas.style.width = `${viewWidth}px`;
+      canvas.style.height = `${viewHeight}px`;
+      canvas.width = Math.floor(viewWidth * dpr);
+      canvas.height = Math.floor(viewHeight * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      camera.zoom = mobileLayout ? 2.35 : 2.8;
+      tileSize = Math.max(12, Math.floor((viewWidth / worldWidth) * camera.zoom));
+      worldOffsetX = Math.max(0, Math.floor((viewWidth - worldWidth * tileSize) / 2));
+      const gaugeScale = mobileLayout ? 0.76 : 1;
+      bagGauge.w = Math.max(36, Math.round(48 * gaugeScale));
+      bagGauge.h = Math.max(220, Math.round(320 * gaugeScale));
+      bagGauge.spacing = Math.max(20, Math.round(32 * gaugeScale));
+      bagGauge.margin = Math.max(12, Math.round(24 * gaugeScale));
+      snapCameraToPlayer();
+    }
+
+    function snapCameraToPlayer() {
+      const targetX = player.x * tileSize - viewWidth * 0.5;
+      const targetY = player.y * tileSize - viewHeight * 0.65;
+      const maxCamX = Math.max(worldWidth * tileSize - viewWidth, 0);
+      const maxCamY = Math.max(worldHeight * tileSize - viewHeight, 0);
+      camera.x = clamp(targetX, 0, maxCamX);
+      camera.y = clamp(targetY, 0, maxCamY);
+      camera.targetX = camera.x;
+      camera.targetY = camera.y;
+    }
+
+    function worldToScreen(x, y) {
+      return {
+        x: Math.round(worldOffsetX + x * tileSize - camera.x + camera.shakeX),
+        y: Math.round(y * tileSize - camera.y),
+      };
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function getCanvasPoint(evt) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: evt.clientX - rect.left,
+        y: evt.clientY - rect.top,
+      };
+    }
+
+    function setTouchDirection(direction) {
+      for (const code of touchKeyCodes) {
+        keys.delete(code);
+      }
+      touchKeyCodes.clear();
+      if (direction === "left") touchKeyCodes.add("ArrowLeft");
+      else if (direction === "right") touchKeyCodes.add("ArrowRight");
+      else if (direction === "up") touchKeyCodes.add("ArrowUp");
+      else if (direction === "down") touchKeyCodes.add("ArrowDown");
+      for (const code of touchKeyCodes) {
+        keys.add(code);
+      }
+    }
+
+    function clearTouchDirection() {
+      setTouchDirection(null);
+    }
+
+    function startGaugeDrag(pointerId, type, sx, sy) {
+      if (!type || bagGauge.amount[type] <= 0) return false;
+      bagGauge.amount[type] -= 1;
+      dragState.active = true;
+      dragState.type = type;
+      dragState.screenX = sx;
+      dragState.screenY = sy;
+      dragState.pointerId = pointerId ?? null;
+      return true;
+    }
+
+    function finishGaugeDrag(sx, sy) {
+      const world = screenToWorld(sx, sy);
+      const tx = Math.floor(world.x);
+      const ty = Math.floor(world.y);
+      const placeable = tx >= 0 && tx < worldWidth && ty >= 0 && ty < worldHeight && tiles[tx][ty] === 0;
+      const key = `${tx},${ty}`;
+      if (placeable) {
+        tiles[tx][ty] = dragState.type === "stone" ? 5 : 1;
+        placedTiles.add(key);
+      } else {
+        bagGauge.amount[dragState.type] = Math.min(bagGauge.max, bagGauge.amount[dragState.type] + 1);
+      }
+      dragState.active = false;
+      dragState.type = null;
+      dragState.pointerId = null;
+    }
+
+    function setDigTargetFromScreenPoint(sx, sy, mode = "hold") {
+      const worldX = (sx + camera.x - worldOffsetX) / tileSize;
+      const worldY = (sy + camera.y) / tileSize;
+      if (worldX < 0 || worldX >= worldWidth) return;
+
+      const dirX = worldX - player.x;
+      const dirY = worldY - player.y;
+      const len = Math.hypot(dirX, dirY) || 1;
+      const nx = dirX / len;
+      const ny = dirY / len;
+      const targetX = Math.floor(player.x + nx * 1.05);
+      const targetY = Math.floor(player.y + ny * 1.05);
+      startDigAt(targetX, targetY, mode);
+    }
+
+    function startTouchGesture(pointerId, sx, sy) {
+      touchGesture.active = true;
+      touchGesture.pointerId = pointerId;
+      touchGesture.startX = sx;
+      touchGesture.startY = sy;
+      touchGesture.lastX = sx;
+      touchGesture.lastY = sy;
+      touchGesture.mode = "pending";
+      touchGesture.lockedDirection = null;
+      touchGesture.moved = false;
+    }
+
+    function lockTouchGestureDirection(dx, dy) {
+      const absX = Math.abs(dx);
+      const absY = Math.abs(dy);
+      if (absX < 1 && absY < 1) return null;
+      if (absX >= absY) {
+        return dx >= 0 ? "right" : "left";
+      }
+      return dy >= 0 ? "down" : "up";
+    }
+
+    function clearTouchGesture() {
+      touchGesture.active = false;
+      touchGesture.pointerId = null;
+      touchGesture.mode = "idle";
+      touchGesture.lockedDirection = null;
+      touchGesture.moved = false;
+      clearTouchDirection();
+    }
+
+    function capturePointerSafely(target, pointerId) {
+      if (!target || typeof target.setPointerCapture !== "function") return;
+      try {
+        target.setPointerCapture(pointerId);
+      } catch {
+        // Synthetic test events may not establish an active pointer capture.
+      }
+    }
+
+    function isPlayerTouchingTile(px, py, tx, ty) {
+      const pLeft = px - player.w / 2;
+      const pRight = px + player.w / 2;
+      const pTop = py - player.h / 2;
+      const pBottom = py + player.h / 2;
+      const tLeft = tx;
+      const tRight = tx + 1;
+      const tTop = ty;
+      const tBottom = ty + 1;
+      const overlapX = Math.min(pRight, tRight) - Math.max(pLeft, tLeft);
+      const overlapY = Math.min(pBottom, tBottom) - Math.max(pTop, tTop);
+      const fullX = overlapX >= player.w * 0.98;
+      const fullY = overlapY >= player.h * 0.98;
+      return (fullX && overlapY > 0) || (fullY && overlapX > 0);
+    }
+
+    function addScreenShake(amplitude = 10, duration = 0.25) {
+      screenShake.time = duration;
+      screenShake.duration = duration;
+      screenShake.amplitude = amplitude;
+    }
+
+    function screenToWorld(sx, sy) {
+      return {
+        x: (sx + camera.x - worldOffsetX) / tileSize,
+        y: (sy + camera.y) / tileSize,
+      };
+    }
+
+    function updateBumpRecovery(dt) {
+      bumpDigProgress.forEach((entry, key) => {
+        entry.cooldown = Math.max(0, (entry.cooldown || 0) - dt);
+        if (entry.cooldown > 0) return;
+        entry.value = Math.max(0, (entry.value || 0) - dt * 1); // recover 1/sec after 2s idle
+        if (entry.value <= 0) {
+          bumpDigProgress.delete(key);
+        } else {
+          bumpDigProgress.set(key, entry);
+        }
+      });
+    }
+
+    function updateScreenShake(dt) {
+      if (screenShake.time <= 0) {
+        camera.shakeX = 0;
+        return;
+      }
+      screenShake.time = Math.max(0, screenShake.time - dt);
+      const progress = 1 - screenShake.time / Math.max(screenShake.duration, 0.0001);
+      const decay = 1 - progress;
+      camera.shakeX = Math.sin(progress * 60) * screenShake.amplitude * decay;
+    }
+
+    function isSolid(x, y) {
+      if (x < 0 || y < 0 || x >= worldWidth || y >= worldHeight) return true;
+      return tiles[x][y] > 0;
+    }
+
+    function handleInput(dt) {
+      if (bounceLock.active) {
+        const moved = Math.abs(player.x - bounceLock.startX);
+        if (moved < 0.4) {
+          return;
+        }
+        bounceLock.active = false;
+      }
+      const targetAccel = keys.has("KeyA") || keys.has("ArrowLeft") ? -1 : 0;
+      const targetAccelRight = keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0;
+      const moveDir = targetAccel + targetAccelRight;
+      const shiftHeld = keys.has("ShiftLeft") || keys.has("ShiftRight");
+      const accelMag = shiftHeld ? dashAccel : moveAccel;
+      const maxVel = shiftHeld ? dashMaxSpeed : maxSpeed;
+      const accel = moveDir * accelMag;
+      player.vx += accel * dt;
+
+      const fric = player.onGround ? friction : airFriction;
+      if (moveDir === 0) {
+        if (player.vx > 0) {
+          player.vx = Math.max(0, player.vx - fric * dt);
+        } else if (player.vx < 0) {
+          player.vx = Math.min(0, player.vx + fric * dt);
+        }
+      }
+      player.vx = clamp(player.vx, -maxVel, maxVel);
+      if (facingLockTimer <= 0) {
+        if (player.vx > 0.1) player.facing = 1;
+        else if (player.vx < -0.1) player.facing = -1;
+      }
+    }
+
+    function tryJump() {
+      if (player.onGround) {
+        player.vy = -jumpSpeed;
+        player.onGround = false;
+      }
+    }
+
+    function moveAndCollide(dt) {
+      // Horizontal move
+      player.x += player.vx * dt;
+      const left = player.x - player.w / 2;
+      const right = player.x + player.w / 2;
+      const top = player.y - player.h / 2;
+      const bottom = player.y + player.h / 2;
+
+      if (player.vx > 0) {
+        const tileX = Math.floor(right);
+        for (let ty = Math.floor(top); ty <= Math.floor(bottom - 0.0001); ty++) {
+          if (isSolid(tileX, ty)) {
+            player.x = tileX - player.w / 2;
+            const tileTop = ty;
+            const tileBottom = ty + 1;
+            const overlapY = Math.min(tileBottom, bottom) - Math.max(tileTop, top);
+            if (overlapY >= player.h * 0.98) {
+              applyBumpDamage(tileX, ty);
+            }
+            player.vx = -Math.max(4, Math.abs(player.vx) * 0.8); // restored stronger rebound
+            facingLockTimer = 0.25;
+            bounceLock.active = true;
+            bounceLock.startX = player.x;
+            break;
+          }
+        }
+      } else if (player.vx < 0) {
+        const tileX = Math.floor(left);
+        for (let ty = Math.floor(top); ty <= Math.floor(bottom - 0.0001); ty++) {
+          if (isSolid(tileX, ty)) {
+            player.x = tileX + 1 + player.w / 2;
+            const tileTop = ty;
+            const tileBottom = ty + 1;
+            const overlapY = Math.min(tileBottom, bottom) - Math.max(tileTop, top);
+            if (overlapY >= player.h * 0.98) {
+              applyBumpDamage(tileX, ty);
+            }
+            player.vx = Math.max(4, Math.abs(player.vx) * 0.8); // restored stronger rebound
+            facingLockTimer = 0.25;
+            bounceLock.active = true;
+            bounceLock.startX = player.x;
+            break;
+          }
+        }
+      }
+
+      // Vertical move
+      player.y += player.vy * dt;
+      const newTop = player.y - player.h / 2;
+      const newBottom = player.y + player.h / 2;
+      player.onGround = false;
+
+      if (player.vy > 0) {
+        const tileY = Math.floor(newBottom);
+        const crouchPressed =
+          keys.has("KeyS") || keys.has("ArrowDown") || keys.has("ControlLeft") || keys.has("ControlRight");
+        let collided = false;
+        let crouchHit = false;
+        for (let tx = Math.floor(player.x - player.w / 2); tx <= Math.floor(player.x + player.w / 2 - 0.0001); tx++) {
+          if (!isSolid(tx, tileY)) continue;
+          collided = true;
+          const tileLeft = tx;
+          const tileRight = tx + 1;
+          const overlapX = Math.min(tileRight, right) - Math.max(tileLeft, left);
+          if (crouchPressed && overlapX >= player.w * 0.5 && !player.climbing) {
+            const tileType = tiles[tx][tileY];
+            applyBumpDamage(tx, tileY); // require multiple crouch hits to break
+            crouchSmashTimer = 0.4;
+            crouchHit = true;
+          }
+        }
+        if (collided) {
+          if (crouchHit) {
+            player.y = tileY - player.h / 2 - 0.01;
+            player.vy = -6;
+            player.onGround = false;
+          } else {
+            player.y = tileY - player.h / 2;
+            player.vy = 0;
+            player.onGround = true;
+          }
+        }
+      } else if (player.vy < 0) {
+        const tileY = Math.floor(newTop);
+        for (let tx = Math.floor(player.x - player.w / 2); tx <= Math.floor(player.x + player.w / 2 - 0.0001); tx++) {
+          if (isSolid(tx, tileY)) {
+            player.y = tileY + 1 + player.h / 2;
+            const tileLeft = tx;
+            const tileRight = tx + 1;
+            const overlapX = Math.min(tileRight, right) - Math.max(tileLeft, left);
+            if (overlapX >= player.w * 0.98) {
+              applyBumpDamage(tx, tileY);
+            }
+            player.vy = 2; // bounce downward slightly
+            break;
+          }
+        }
+      }
+
+      // Keep inside world
+      player.x = clamp(player.x, player.w / 2, worldWidth - player.w / 2);
+      player.y = clamp(player.y, player.h / 2, worldHeight - player.h / 2);
+    }
+
+    function tileBreakDuration(x, y) {
+      const t = (tiles[x]?.[y] || 0);
+      if (t >= 5) return breakTime * 1.6; // stone types
+      return breakTime;
+    }
+
+    function resourceKeyFromTile(tileType) {
+      if (tileType <= 0) return null;
+      return tileType >= 5 ? "stone" : "dirt";
+    }
+
+    function storageFullForTile(tileType) {
+      const key = resourceKeyFromTile(tileType);
+      if (!key) return false;
+      return bagGauge.amount[key] >= bagGauge.max;
+    }
+
+    function breakTileAt(x, y, tileType = tiles[x]?.[y]) {
+      if (tileType <= 0) return false;
+      if (storageFullForTile(tileType)) return false;
+      const key = `${x},${y}`;
+      if (!placedTiles.has(key)) {
+        setBackgroundTile(x, y, tileType);
+      }
+      tiles[x][y] = 0;
+      placedTiles.delete(key);
+      bumpDigProgress.delete(key);
+      addScreenShake(10, 0.2);
+      const kind = tileType >= 5 ? "stone" : "dirt";
+      spawnDirtChunks({ x: x + 0.5, y: y + 0.5 }, kind);
+      return true;
+    }
+
+    function applyBumpDamage(x, y, amount) {
+      if ((tiles[x]?.[y] || 0) <= 0) return false;
+      const key = `${x},${y}`;
+      const needed = tileBreakDuration(x, y);
+      if (storageFullForTile(tiles[x][y])) return false;
+      const increment = amount ?? needed * 0.22; // about 5 hits for dirt, similar pace to hold
+      const entry = bumpDigProgress.get(key) || { value: 0, cooldown: 0 };
+      entry.value += increment;
+      entry.cooldown = 2; // seconds before recovery begins
+      if (entry.value >= needed) {
+        bumpDigProgress.delete(key);
+        breakTileAt(x, y, tiles[x][y]);
+        return true;
+      }
+      bumpDigProgress.set(key, entry);
+      return false;
+    }
+
+    function updateDig(dt) {
+      if (!digState.active || !digState.target) {
+        digState.progress = Math.max(0, digState.progress - dt * 0.8);
+        return;
+      }
+      const { x, y } = digState.target;
+      const cx = Math.floor(player.x);
+      const cy = Math.floor(player.y);
+      const dx = Math.abs(x - cx);
+      const dy = Math.abs(y - cy);
+      const stillInReach = dx <= 1 && dy <= 1;
+      const tileType = (tiles[x]?.[y] || 0);
+      const touching = isPlayerTouchingTile(player.x, player.y, x, y);
+      if (!stillInReach || tileType <= 0 || !touching || storageFullForTile(tileType)) {
+        digState.active = false;
+        digState.target = null;
+        digState.progress = 0;
+        return;
+      }
+
+      const needed = tileBreakDuration(x, y);
+      digState.progress += dt;
+      if (digState.progress >= needed) {
+        if (!breakTileAt(x, y, tileType)) {
+          digState.active = false;
+          digState.target = null;
+          digState.progress = 0;
+          return;
+        }
+        digState.active = false;
+        digState.target = null;
+        digState.progress = 0;
+      }
+    }
+
+    function startDigAt(targetX, targetY, mode = "auto") {
+      if (targetX < 0 || targetX >= worldWidth || targetY < 0 || targetY >= worldHeight) return false;
+      if ((tiles[targetX]?.[targetY] || 0) <= 0) return false;
+      if (storageFullForTile(tiles[targetX][targetY])) return false; // can't collect more of this type
+      if (bagGauge.amount.dirt >= bagGauge.max && bagGauge.amount.stone >= bagGauge.max) return false; // storage full
+      const dxTile = Math.abs(targetX - Math.floor(player.x));
+      const dyTile = Math.abs(targetY - Math.floor(player.y));
+      if (dxTile > 1 || dyTile > 1) return false;
+      if (dxTile === 1 && dyTile === 1) return false; // block diagonals unless directly touching
+      if (
+        digState.active &&
+        digState.target &&
+        digState.target.x === targetX &&
+        digState.target.y === targetY
+      ) {
+        return true; // already digging this tile
+      }
+      digState.active = true;
+      digState.progress = 0;
+      digState.target = { x: targetX, y: targetY };
+      digState.mode = mode;
+      digState.startedAt = performance.now() / 1000;
+      return true;
+    }
+
+    function setDigTargetFromMouse(evt, mode = "hold") {
+      const rect = canvas.getBoundingClientRect();
+      const sx = evt.clientX - rect.left;
+      const sy = evt.clientY - rect.top;
+      const worldX = (sx + camera.x - worldOffsetX) / tileSize;
+      const worldY = (sy + camera.y) / tileSize;
+      if (worldX < 0 || worldX >= worldWidth) return;
+
+      const dirX = worldX - player.x;
+      const dirY = worldY - player.y;
+      const len = Math.hypot(dirX, dirY) || 1;
+      const nx = dirX / len;
+      const ny = dirY / len;
+      const targetX = Math.floor(player.x + nx * 1.05);
+      const targetY = Math.floor(player.y + ny * 1.05);
+      startDigAt(targetX, targetY, mode);
+    }
+
+    const bagGauge = {
+      w: 48, // larger gauge width
+      h: 320, // larger gauge height
+      spacing: 32,
+      margin: 24,
+      max: 15,
+      amount: { dirt: 0, stone: 0 },
+    };
+
+    function gaugeSlot(type) {
+      const index = type === "stone" ? 1 : 0;
+      const x = bagGauge.margin + index * (bagGauge.w + bagGauge.spacing);
+      const y = bagGauge.margin;
+      return {
+        x,
+        y,
+      };
+    }
+
+    function gaugeTarget(type) {
+      const slot = gaugeSlot(type);
+      return { x: slot.x + bagGauge.w / 2, y: slot.y + bagGauge.h / 2 };
+    }
+
+    function gaugeHitTest(px, py) {
+      const dirtSlot = gaugeSlot("dirt");
+      const stoneSlot = gaugeSlot("stone");
+      const inRect = (slot) =>
+        px >= slot.x && px <= slot.x + bagGauge.w && py >= slot.y && py <= slot.y + bagGauge.h;
+      if (inRect(dirtSlot)) return "dirt";
+      if (inRect(stoneSlot)) return "stone";
+      return null;
+    }
+
+    function spawnDirtChunks(origin, kind = "dirt") {
+      const gaugeKey = kind === "stone" ? "stone" : "dirt";
+      if (bagGauge.amount[gaugeKey] >= bagGauge.max) return; // storage full
+      const target = gaugeTarget(gaugeKey);
+      const startScreen = worldToScreen(origin.x, origin.y);
+      const dist = Math.hypot(target.x - startScreen.x, target.y - startScreen.y);
+      const speed = 12; // much faster flight to bag
+      const totalDuration = clamp(dist / speed, 0.5, 2.2);
+      const upDuration = totalDuration * 0.45;
+      const downDuration = totalDuration * 0.55;
+      const size = tileSize * (0.35 + Math.random() * 0.3);
+      flyingDirts.push({
+        start: origin,
+        startScreen,
+        target,
+        arcOffsetX: (Math.random() - 0.5) * 40,
+        arcOffsetY: -(60 + Math.random() * 50),
+        t: 0,
+        upDuration,
+        downDuration,
+        size,
+        kind,
+      });
+    }
+
+    function depositDirt() {}
+
+    function tryDirectionalDig() {
+      if (player.climbing) return false;
+      const px = Math.floor(player.x);
+      const py = Math.floor(player.y);
+      const dirs = [
+        { keys: ["KeyA", "ArrowLeft"], dx: -1, dy: 0 },
+        { keys: ["KeyD", "ArrowRight"], dx: 1, dy: 0 },
+        { keys: ["KeyW", "ArrowUp"], dx: 0, dy: -1 },
+        { keys: ["KeyS", "ArrowDown"], dx: 0, dy: 1 },
+      ];
+      for (const dir of dirs) {
+        const pressed = dir.keys.some((k) => keys.has(k));
+        if (!pressed) continue;
+        const tx = px + dir.dx;
+        const ty = py + dir.dy;
+        if (startDigAt(tx, ty, "auto")) return true;
+      }
+      return false;
+    }
+
+    function handleClimb(dt) {
+      const upPressed = keys.has("KeyW") || keys.has("ArrowUp");
+      const downPressed = keys.has("KeyS") || keys.has("ArrowDown");
+      const leftPressed = keys.has("KeyA") || keys.has("ArrowLeft");
+      const rightPressed = keys.has("KeyD") || keys.has("ArrowRight");
+      const px = Math.floor(player.x);
+      const py = Math.floor(player.y);
+      const aboveBg = backgroundTiles[px]?.[py - 1] ?? BackgroundType.None;
+      const underground = py >= 4 || aboveBg !== BackgroundType.None;
+      const currentBg = backgroundTiles[px]?.[py] ?? BackgroundType.None;
+      const inSurfaceAir = currentBg === BackgroundType.None && py <= 4;
+
+      if (player.climbing) {
+        if ((player.onGround && !upPressed) || inSurfaceAir) {
+          if (inSurfaceAir) {
+            player.vy = -jumpSpeed; // exit with a hop when emerging
+            player.onGround = false;
+          }
+          player.climbing = false;
+        }
+      } else if (upPressed && underground && !digState.active) {
+        player.climbing = true;
+      }
+
+      if (player.climbing) {
+        let cvx = 0;
+        let cvy = 0;
+        if (leftPressed) cvx -= climbSpeed;
+        if (rightPressed) cvx += climbSpeed;
+        if (upPressed) cvy -= climbSpeed;
+        if (downPressed) cvy += climbSpeed;
+        player.vx = cvx;
+        player.vy = cvy;
+        player.onGround = false;
+      }
+    }
+
+    function update(dt) {
+      const wasGrounded = player.onGround;
+      handleInput(dt);
+      handleClimb(dt);
+      if (!player.climbing) {
+        tryDirectionalDig();
+      }
+      if (!player.climbing && (keys.has("Space") || keys.has("KeyW") || keys.has("ArrowUp"))) {
+        tryJump();
+      }
+      dashDustTimer = Math.max(0, dashDustTimer - dt);
+      if (!player.climbing) {
+        player.vy += gravity * dt;
+      }
+      moveAndCollide(dt);
+      updateDig(dt);
+      updateFlyingDirts(dt);
+      updateBumpRecovery(dt);
+      updateAnimation(dt);
+      dashActive =
+        player.onGround &&
+        (keys.has("ShiftLeft") || keys.has("ShiftRight")) &&
+        Math.abs(player.vx) > 1;
+      emitDashDust();
+      updateScreenShake(dt);
+      facingLockTimer = Math.max(0, facingLockTimer - dt);
+      crouchSmashTimer = Math.max(0, crouchSmashTimer - dt);
+
+      camera.lookAheadY = clamp(player.vy * 6, -tileSize * 6, tileSize * 6);
+      camera.lookAheadX = clamp(player.vx * tileSize * 0.4, -tileSize * 2, tileSize * 2);
+      // Nudge camera down a bit more for each tile descended, so player appears slightly higher.
+      const depthSteps = Math.max(0, Math.floor(player.y) - 3); // start nudging after surface
+      const camYOffsetFactor = clamp(0.7 - depthSteps * 0.2, 0.2, 0.7);
+      camera.targetY = player.y * tileSize - viewHeight * camYOffsetFactor + camera.lookAheadY;
+      camera.targetX = player.x * tileSize - viewWidth * 0.55 + camera.lookAheadX;
+      const maxCamY = Math.max(worldHeight * tileSize - viewHeight, 0);
+      const maxCamX = Math.max(worldWidth * tileSize - viewWidth, 0);
+      camera.y = clamp(camera.y + (camera.targetY - camera.y) * camera.smoothing, 0, maxCamY);
+      camera.x = clamp(camera.x + (camera.targetX - camera.x) * camera.smoothing, 0, maxCamX);
+      lastGrounded = player.onGround;
+    }
+
+    function drawTiles() {
+      const startY = Math.floor(camera.y / tileSize);
+      const endY = Math.ceil((camera.y + viewHeight) / tileSize);
+      for (let x = 0; x < worldWidth; x++) {
+        for (let y = startY; y <= endY && y < worldHeight; y++) {
+          const type = tiles[x][y];
+          if (type > 0) {
+            const { x: sx, y: sy } = worldToScreen(x, y);
+            const drawImg = (img) => ctx.drawImage(img, sx, sy, tileSize, tileSize);
+            if (type === 2 && assets.grass) drawImg(assets.grass);
+            else if (type === 3 && assets.dirtFh) drawImg(assets.dirtFh);
+            else if (type === 4 && assets.dirtAlt) drawImg(assets.dirtAlt);
+            else if (type === 5 && assets.stone) drawImg(assets.stone);
+            else if (type === 6 && assets.stone2) drawImg(assets.stone2);
+            else if (type === 7 && assets.stone3) drawImg(assets.stone3);
+            else if (assets.dirt) drawImg(assets.dirt);
+            else {
+              ctx.fillStyle = y % 2 === 0 ? "var(--dirt)" : "var(--dirt-shadow)";
+              ctx.fillRect(sx, sy, tileSize, tileSize);
+            }
+          }
+        }
+      }
+    }
+
+    function drawBackgroundTiles() {
+      const startY = Math.floor(camera.y / tileSize);
+      const endY = Math.ceil((camera.y + viewHeight) / tileSize);
+      for (let x = 0; x < worldWidth; x++) {
+        for (let y = startY; y <= endY && y < worldHeight; y++) {
+          if (tiles[x][y] > 0) continue;
+          const type = backgroundTiles[x][y];
+          if (type === BackgroundType.None) continue;
+          const { x: sx, y: sy } = worldToScreen(x, y);
+          let img = null;
+          if (type === BackgroundType.Grass) img = assets.grassBack;
+          else if (type === BackgroundType.Stone) img = assets.stoneBack;
+          else if (type === BackgroundType.Dirt) img = assets.dirtBack;
+          if (img) {
+            ctx.drawImage(img, sx, sy, tileSize, tileSize);
+          } else {
+            ctx.fillStyle = "rgba(255,255,255,0.02)";
+            ctx.fillRect(sx, sy, tileSize, tileSize);
+          }
+        }
+      }
+    }
+
+    function drawPlayer() {
+      const bottom = worldToScreen(player.x, player.y + player.h / 2);
+      const spriteList =
+        player.anim.state === "crouch"
+          ? assets.crouch
+          : player.anim.state === "climb"
+          ? assets.crime
+          : player.anim.state === "run"
+          ? assets.run
+          : assets.idle;
+      const frame = spriteList[player.anim.frame % Math.max(spriteList.length, 1)];
+      const renderW = player.renderW || player.w;
+      const renderH = player.renderH || player.h;
+      const ratio = frame && frame.naturalHeight > 0 ? frame.naturalHeight / frame.naturalWidth : renderH / Math.max(renderW, 0.0001);
+      let targetWidth = tileSize * renderW;
+      let targetHeight = targetWidth * ratio;
+      const crouchScaleY = player.anim.state === "crouch" ? 0.75 : 1;
+      if (frame) {
+        ctx.save();
+        ctx.translate(bottom.x, bottom.y);
+        ctx.scale(player.facing, crouchScaleY);
+        ctx.drawImage(frame, -targetWidth / 2, -targetHeight / crouchScaleY, targetWidth, targetHeight);
+        ctx.restore();
+      } else {
+        ctx.save();
+        ctx.translate(bottom.x, bottom.y);
+        ctx.scale(player.facing, crouchScaleY);
+        ctx.fillStyle = "var(--player)";
+        ctx.fillRect(-targetWidth / 2, -targetHeight / crouchScaleY, targetWidth, targetHeight);
+        ctx.restore();
+      }
+    }
+
+    function updateFlyingDirts(dt) {
+      for (let i = flyingDirts.length - 1; i >= 0; i--) {
+        const dirt = flyingDirts[i];
+        dirt.t += dt;
+        const total = dirt.upDuration + dirt.downDuration;
+        if (dirt.t >= total) {
+          const key = dirt.kind === "stone" ? "stone" : "dirt";
+          if (bagGauge.amount[key] >= bagGauge.max) {
+            flyingDirts.splice(i, 1);
+            continue;
+          }
+          if (bagGauge.amount[key] < bagGauge.max) {
+            bagGauge.amount[key] += 1;
+          }
+          flyingDirts.splice(i, 1);
+        }
+      }
+    }
+
+    function spawnDust(wx, wy, opts = {}) {
+      return;
+    }
+
+    function updateDust(dt) {
+      return;
+    }
+
+    function drawDust() {
+      return;
+    }
+
+    function drawGaugeFill(type) {
+      const slot = gaugeSlot(type);
+      const count = clamp(bagGauge.amount[type] || 0, 0, bagGauge.max);
+      const fillHeight = count * 16; // scaled to match 8x gauge height (2px * 8)
+      if (fillHeight <= 0) return;
+      const innerX = slot.x + 12;
+      const innerW = 24;
+      const innerBottom = slot.y + bagGauge.h - 12;
+      const fillY = innerBottom - fillHeight;
+      const img =
+        type === "stone"
+          ? assets.stone || assets.stone2 || assets.stone3
+          : assets.dirt || assets.dirtAlt || assets.dirtFh;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(innerX, fillY, innerW, fillHeight);
+      ctx.clip();
+      if (img) {
+        const pattern = ctx.createPattern(img, "repeat");
+        if (pattern) {
+          ctx.translate(innerX, fillY);
+          ctx.fillStyle = pattern;
+          ctx.fillRect(0, 0, innerW, fillHeight);
+        } else {
+          ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, innerX, fillY, innerW, fillHeight);
+        }
+      } else {
+        ctx.fillStyle = type === "stone" ? "#94a3b8" : "#f59e0b";
+        ctx.fillRect(innerX, fillY, innerW, fillHeight);
+      }
+      ctx.restore();
+    }
+
+    function drawGaugeFrame(slot) {
+      if (assets.gauge) {
+        ctx.drawImage(assets.gauge, slot.x, slot.y, bagGauge.w, bagGauge.h);
+      } else {
+        ctx.strokeStyle = "rgba(255,255,255,0.8)";
+        ctx.strokeRect(slot.x, slot.y, bagGauge.w, bagGauge.h);
+      }
+    }
+
+    function drawBagGauges() {
+      const dirtSlot = gaugeSlot("dirt");
+      const stoneSlot = gaugeSlot("stone");
+      const dirtFull = bagGauge.amount.dirt >= bagGauge.max;
+      const stoneFull = bagGauge.amount.stone >= bagGauge.max;
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      const pad = 16;
+      const width = stoneSlot.x + bagGauge.w - dirtSlot.x;
+      const height = bagGauge.h;
+      const fullRectColor = "rgba(239,68,68,0.4)";
+      ctx.fillStyle = dirtFull || stoneFull ? fullRectColor : "rgba(0,0,0,0.45)";
+      ctx.fillRect(dirtSlot.x - pad, dirtSlot.y - pad, width + pad * 2, height + pad * 2);
+      drawGaugeFill("dirt");
+      drawGaugeFill("stone");
+      drawGaugeFrame(dirtSlot);
+      drawGaugeFrame(stoneSlot);
+      if (dirtFull || stoneFull) {
+        ctx.strokeStyle = "rgba(248,113,113,0.9)";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(dirtSlot.x - pad + 1.5, dirtSlot.y - pad + 1.5, width + pad * 2 - 3, height + pad * 2 - 3);
+      }
+      ctx.restore();
+    }
+
+    function drawMobileHint() {
+      if (!mobileLayout) return;
+      const lines = ["スワイプで移動", "メーター上はドラッグで設置"];
+      ctx.save();
+      ctx.font = "bold 12px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const padX = 12;
+      const padY = 8;
+      const lineHeight = 16;
+      const width = 190;
+      const height = padY * 2 + lineHeight * lines.length;
+      const x = viewWidth / 2 - width / 2;
+      const y = viewHeight - height - 16;
+      ctx.fillStyle = "rgba(15, 23, 42, 0.7)";
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(x, y, width, height, 12);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#e2e8f0";
+      lines.forEach((line, index) => {
+        ctx.fillText(line, viewWidth / 2, y + padY + lineHeight / 2 + index * lineHeight);
+      });
+      ctx.restore();
+    }
+
+    function updateAnimation(dt) {
+      const speed = Math.abs(player.vx);
+      const grounded = player.onGround;
+      const crouchInput = keys.has("KeyS") || keys.has("ArrowDown") || keys.has("ControlLeft") || keys.has("ControlRight");
+      player.crouching = grounded && crouchInput;
+      const diggingDown =
+        digState.active &&
+        digState.target &&
+        digState.target.y > Math.floor(player.y) &&
+        Math.abs(digState.target.x - Math.floor(player.x)) <= 1;
+      const crouchHeld = keys.has("KeyS") || keys.has("ArrowDown");
+      const forceCrouch = diggingDown || crouchSmashTimer > 0 || crouchHeld;
+      const nextState = player.crouching || forceCrouch
+        ? "crouch"
+        : player.climbing
+        ? "climb"
+        : !grounded
+        ? "run"
+        : speed > 0.2
+        ? "run"
+        : "idle";
+      if (player.anim.state !== nextState) {
+        player.anim.state = nextState;
+        player.anim.frame = 0;
+        player.anim.timer = 0;
+      }
+      const frames =
+        nextState === "crouch"
+        ? assets.crouch
+        : nextState === "climb"
+        ? assets.crime
+        : nextState === "run"
+        ? assets.run
+        : assets.idle;
+      const baseDuration =
+        nextState === "crouch"
+          ? 0.26
+        : nextState === "idle"
+          ? 0.4
+        : grounded
+        ? dashActive
+          ? 0.05  // dash animation: half previous speed
+          : 0.1   // run animation: half previous speed
+          : nextState === "climb"
+          ? 0.22
+          : 0.22;
+      if (frames.length === 0) return;
+      player.anim.timer += dt;
+      const step = Math.floor(player.anim.timer / baseDuration);
+      if (step > 0) {
+        player.anim.frame = (player.anim.frame + step) % frames.length;
+        player.anim.timer -= step * baseDuration;
+      }
+    }
+
+    function emitDashDust(force = false) {
+      return;
+    }
+
+    function dirtPosition(dirt) {
+      const start = dirt.startScreen || worldToScreen(dirt.start.x, dirt.start.y);
+      const target = dirt.target;
+      const mid = {
+        x: (start.x + target.x) / 2 + dirt.arcOffsetX,
+        y: Math.min(start.y, target.y) + dirt.arcOffsetY,
+      };
+      const total = dirt.upDuration + dirt.downDuration;
+      const t = clamp(dirt.t / total, 0, 1);
+      const split = dirt.upDuration / total;
+      if (t <= split) {
+        const u = clamp(dirt.t / dirt.upDuration, 0, 1);
+        const ease = u * u * (3 - 2 * u);
+        return {
+          x: start.x + (mid.x - start.x) * ease,
+          y: start.y + (mid.y - start.y) * ease,
+        };
+      }
+      const d = clamp((dirt.t - dirt.upDuration) / dirt.downDuration, 0, 1);
+      const easeD = d * d * (3 - 2 * d);
+      return {
+        x: mid.x + (target.x - mid.x) * easeD,
+        y: mid.y + (target.y - mid.y) * easeD,
+      };
+    }
+
+    function drawFlyingDirts() {
+      flyingDirts.forEach((dirt) => {
+        const pos = dirtPosition(dirt);
+        const size = dirt.size || tileSize * 0.55;
+        const useStone =
+          dirt.kind === "stone" && (assets.stone || assets.stone2 || assets.stone3);
+        const stoneFrames = [assets.stone, assets.stone2, assets.stone3].filter(Boolean);
+        if (useStone && stoneFrames.length) {
+          const frame = stoneFrames[dirt.kindFrame ?? 0] || stoneFrames[0];
+          ctx.drawImage(frame, pos.x - size / 2, pos.y - size / 2, size, size);
+        } else if (assets.dirt) {
+          ctx.drawImage(assets.dirt, pos.x - size / 2, pos.y - size / 2, size, size);
+        } else {
+          ctx.fillStyle = "var(--carry)";
+          ctx.fillRect(pos.x - size / 2, pos.y - size / 2, size, size);
+        }
+      });
+    }
+
+    function drawBreakOverlay() {
+      if (!digState.target || digState.progress <= 0) return;
+      const { x: tx, y: ty } = digState.target;
+      if ((tiles[tx]?.[ty] || 0) <= 0) return;
+      const needed = tileBreakDuration(tx, ty);
+      const stage = clamp(Math.floor((digState.progress / needed) * 10), 0, 10);
+      const scale = 0.3 + (stage / 10) * 0.8; // grow from small to near full
+      const center = worldToScreen(tx + 0.5, ty + 0.5);
+      const size = tileSize * scale;
+      ctx.save();
+      ctx.translate(center.x, center.y);
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.fillRect(-size / 2, -size / 2, size, size);
+      ctx.restore();
+    }
+
+    function drawBumpOverlays() {
+      bumpDigProgress.forEach((entry, key) => {
+        const progress = entry.value ?? 0;
+        const [sx, sy] = key.split(",").map((v) => parseInt(v, 10));
+        if ((tiles[sx]?.[sy] || 0) <= 0) return;
+        const needed = tileBreakDuration(sx, sy);
+        const stage = clamp(Math.floor((progress / needed) * 10), 0, 10);
+        const scale = 0.3 + (stage / 10) * 0.8;
+        const center = worldToScreen(sx + 0.5, sy + 0.5);
+        const size = tileSize * scale;
+        ctx.save();
+        ctx.translate(center.x, center.y);
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fillRect(-size / 2, -size / 2, size, size);
+        ctx.restore();
+      });
+    }
+
+    function drawBackground() {
+      if (assets.background) {
+        const img = assets.background;
+        const scale = Math.max(
+          1,
+          Math.ceil(viewWidth / img.naturalWidth),
+          Math.ceil(viewHeight / img.naturalHeight)
+        );
+        const dw = img.naturalWidth * scale;
+        const dh = img.naturalHeight * scale;
+        const dx = Math.floor((viewWidth - dw) / 2);
+        const dy = Math.floor((viewHeight - dh) / 2);
+        ctx.drawImage(img, dx, dy, dw, dh);
+      } else {
+        ctx.fillStyle = "var(--bg)";
+        ctx.fillRect(0, 0, viewWidth, viewHeight);
+      }
+    }
+
+    function render() {
+      ctx.imageSmoothingEnabled = false;
+      drawBackground();
+      drawBackgroundTiles();
+      drawTiles();
+      drawBreakOverlay();
+      drawBumpOverlays();
+      drawPlayer();
+      drawFlyingDirts();
+      drawBagGauges();
+      drawMobileHint();
+      if (dragState.active) {
+        const img =
+          dragState.type === "stone"
+            ? assets.stone || assets.stone2 || assets.stone3
+            : assets.dirt || assets.dirtAlt || assets.dirtFh;
+        const size = tileSize * 0.8;
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        if (img) {
+          ctx.drawImage(img, dragState.screenX - size / 2, dragState.screenY - size / 2, size, size);
+        } else {
+          ctx.fillStyle = dragState.type === "stone" ? "#94a3b8" : "#f59e0b";
+          ctx.fillRect(dragState.screenX - size / 2, dragState.screenY - size / 2, size, size);
+        }
+        ctx.restore();
+      }
+    }
+
+    function loop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+      update(dt);
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    function renderGameToText() {
+      return JSON.stringify({
+        origin: "top-left; x right, y down",
+        view: {
+          width: viewWidth,
+          height: viewHeight,
+          tileSize,
+        },
+        player: {
+          x: Number(player.x.toFixed(2)),
+          y: Number(player.y.toFixed(2)),
+          vx: Number(player.vx.toFixed(2)),
+          vy: Number(player.vy.toFixed(2)),
+          facing: player.facing,
+          onGround: player.onGround,
+          climbing: player.climbing,
+          state: player.anim.state,
+        },
+        dig: {
+          active: digState.active,
+          mode: digState.mode,
+          target: digState.target,
+          progress: Number(digState.progress.toFixed(2)),
+        },
+        inventory: {
+          dirt: bagGauge.amount.dirt,
+          stone: bagGauge.amount.stone,
+          max: bagGauge.max,
+        },
+        touch: {
+          mobileLayout,
+          moveActive: touchGesture.active && touchGesture.mode === "move",
+          lockedDirection: touchGesture.lockedDirection,
+          draggingMeter: dragState.active,
+        },
+      });
+    }
+
+    window.render_game_to_text = renderGameToText;
+    window.advanceTime = (ms) => {
+      const steps = Math.max(1, Math.round(ms / (1000 / 60)));
+      const stepDt = ms / steps / 1000;
+      for (let i = 0; i < steps; i++) {
+        update(stepDt);
+      }
+      render();
+      lastTime = performance.now();
+    };
+
+    document.addEventListener("keydown", (e) => {
+      keys.add(e.code);
+    });
+    document.addEventListener("keyup", (e) => {
+      keys.delete(e.code);
+    });
+
+    canvas.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "touch") return;
+      const { x: sx, y: sy } = getCanvasPoint(e);
+      const gaugeHit = gaugeHitTest(sx, sy);
+      if (gaugeHit) {
+        if (startGaugeDrag(e.pointerId, gaugeHit, sx, sy)) {
+          e.preventDefault();
+          capturePointerSafely(canvas, e.pointerId);
+        } else {
+          e.preventDefault();
+        }
+        return;
+      }
+      if (dragState.active) return;
+      startTouchGesture(e.pointerId, sx, sy);
+      capturePointerSafely(canvas, e.pointerId);
+      e.preventDefault();
+    });
+
+    canvas.addEventListener("pointermove", (e) => {
+      if (e.pointerType !== "touch") return;
+      const { x: sx, y: sy } = getCanvasPoint(e);
+      if (dragState.active && dragState.pointerId === e.pointerId) {
+        dragState.screenX = sx;
+        dragState.screenY = sy;
+        e.preventDefault();
+        return;
+      }
+      if (!touchGesture.active || touchGesture.pointerId !== e.pointerId) return;
+      const stepDx = sx - touchGesture.lastX;
+      const stepDy = sy - touchGesture.lastY;
+      touchGesture.lastX = sx;
+      touchGesture.lastY = sy;
+      const dx = sx - touchGesture.startX;
+      const dy = sy - touchGesture.startY;
+      const distance = Math.hypot(dx, dy);
+      const stepDistance = Math.hypot(stepDx, stepDy);
+      if (touchGesture.mode === "pending" && distance >= 14) {
+        touchGesture.mode = "move";
+        touchGesture.lockedDirection = lockTouchGestureDirection(dx, dy);
+        touchGesture.moved = true;
+        setTouchDirection(touchGesture.lockedDirection);
+      } else if (touchGesture.mode === "move" && stepDistance >= 10) {
+        const nextDirection = lockTouchGestureDirection(stepDx, stepDy);
+        if (nextDirection && nextDirection !== touchGesture.lockedDirection) {
+          touchGesture.lockedDirection = nextDirection;
+          setTouchDirection(nextDirection);
+        }
+      }
+      e.preventDefault();
+    });
+
+    canvas.addEventListener("pointerup", (e) => {
+      if (e.pointerType !== "touch") return;
+      const { x: sx, y: sy } = getCanvasPoint(e);
+      if (dragState.active && dragState.pointerId === e.pointerId) {
+        finishGaugeDrag(sx, sy);
+        e.preventDefault();
+        return;
+      }
+      if (!touchGesture.active || touchGesture.pointerId !== e.pointerId) return;
+      const dx = sx - touchGesture.startX;
+      const dy = sy - touchGesture.startY;
+      const distance = Math.hypot(dx, dy);
+      if (!touchGesture.moved && distance < 14) {
+        if (digState.active) {
+          digState.active = false;
+          digState.target = null;
+          digState.progress = 0;
+        } else {
+          setDigTargetFromScreenPoint(sx, sy, "hold");
+        }
+      }
+      clearTouchGesture();
+      e.preventDefault();
+    });
+
+    canvas.addEventListener("pointercancel", (e) => {
+      if (e.pointerType !== "touch") return;
+      if (dragState.active && dragState.pointerId === e.pointerId) {
+        dragState.active = false;
+        dragState.type = null;
+        dragState.pointerId = null;
+      }
+      if (touchGesture.active && touchGesture.pointerId === e.pointerId) {
+        clearTouchGesture();
+      }
+    });
+
+    canvas.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      const { x: sx, y: sy } = getCanvasPoint(e);
+      const gaugeHit = gaugeHitTest(sx, sy);
+      if (gaugeHit) {
+        if (bagGauge.amount[gaugeHit] > 0) {
+          startGaugeDrag(null, gaugeHit, sx, sy);
+        }
+        return;
+      }
+      if (dragState.active) return;
+      if (digState.active) {
+        // cancel ongoing dig on click
+        digState.active = false;
+        digState.target = null;
+        digState.progress = 0;
+        return;
+      }
+      setDigTargetFromScreenPoint(sx, sy, "hold");
+    });
+    canvas.addEventListener("mouseup", (e) => {
+      if (e.button === 0 && dragState.active) {
+        const { x: sx, y: sy } = getCanvasPoint(e);
+        finishGaugeDrag(sx, sy);
+      } else if (e.button === 0 && digState.active && digState.mode === "hold") {
+        const now = performance.now() / 1000;
+        const heldFor = now - (digState.startedAt || now);
+        if (heldFor < clickDigThreshold) {
+          // convert to auto-dig: keep digging after release
+          digState.mode = "auto";
+        } else {
+          // stop hold-dig
+          digState.active = false;
+          digState.target = null;
+          digState.progress = 0;
+        }
+      }
+    });
+    canvas.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      depositDirt();
+    });
+    canvas.addEventListener("mousemove", (e) => {
+      const { x: sx, y: sy } = getCanvasPoint(e);
+      if (dragState.active) {
+        dragState.screenX = sx;
+        dragState.screenY = sy;
+        return;
+      }
+      if (!digState.active && (e.buttons & 1)) {
+        setDigTargetFromScreenPoint(sx, sy, "hold");
+      }
+    });
+    window.addEventListener("resize", resizeCanvas);
+
+    resizeCanvas();
+    assetReady.finally(() => requestAnimationFrame(loop));
+  </script>
+</body>
+</html>
