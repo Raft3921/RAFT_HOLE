@@ -84,6 +84,14 @@
     const maxDigPower = 4.0;
     const digPowerGainPerDelivery = 0.03;
     const powerPopups = [];
+    const worldLayers = {
+      backdrop: null,
+      background: null,
+      terrain: null,
+      backdropCtx: null,
+      backgroundCtx: null,
+      terrainCtx: null,
+    };
 
     // Asset setup
     const assets = {
@@ -211,6 +219,15 @@
     };
     const backgroundTiles = Array.from({ length: worldWidth }, () => Array(worldHeight).fill(BackgroundType.None));
 
+    function makeLayerCanvas(width, height) {
+      const layer = document.createElement("canvas");
+      layer.width = width;
+      layer.height = height;
+      const layerCtx = layer.getContext("2d");
+      if (layerCtx) layerCtx.imageSmoothingEnabled = false;
+      return { canvas: layer, ctx: layerCtx };
+    }
+
     function backgroundTypeFromTile(tileType) {
       if (tileType === 2) return BackgroundType.Grass;
       if (tileType === 1 || tileType === 3 || tileType === 4) return BackgroundType.Dirt;
@@ -224,6 +241,163 @@
       const bg = backgroundTypeFromTile(tileType);
       if (bg === BackgroundType.None) return;
       backgroundTiles[x][y] = bg;
+    }
+
+    function tileFillColor(type, y) {
+      if (type >= 5) return "#94a3b8";
+      return y % 2 === 0 ? "#8b5a2b" : "#5d3b1a";
+    }
+
+    function drawTileCell(ctxTarget, x, y, type) {
+      if (!ctxTarget || type <= 0) return;
+      const sx = x * tileSize;
+      const sy = y * tileSize;
+      const drawImg = (img) => ctxTarget.drawImage(img, sx, sy, tileSize, tileSize);
+      if (type === 2 && assets.grass) drawImg(assets.grass);
+      else if (type === 3 && assets.dirtFh) drawImg(assets.dirtFh);
+      else if (type === 4 && assets.dirtAlt) drawImg(assets.dirtAlt);
+      else if (type === 5 && assets.stone) drawImg(assets.stone);
+      else if (type === 6 && assets.stone2) drawImg(assets.stone2);
+      else if (type === 7 && assets.stone3) drawImg(assets.stone3);
+      else if (assets.dirt && type === 1) drawImg(assets.dirt);
+      else {
+        ctxTarget.fillStyle = tileFillColor(type, y);
+        ctxTarget.fillRect(sx, sy, tileSize, tileSize);
+      }
+    }
+
+    function drawBackgroundCell(ctxTarget, x, y, type) {
+      if (!ctxTarget || type === BackgroundType.None) return;
+      const sx = x * tileSize;
+      const sy = y * tileSize;
+      let img = null;
+      if (type === BackgroundType.Grass) img = assets.grassBack;
+      else if (type === BackgroundType.Stone) img = assets.stoneBack;
+      else if (type === BackgroundType.Dirt) img = assets.dirtBack;
+      if (img) {
+        ctxTarget.drawImage(img, sx, sy, tileSize, tileSize);
+      } else {
+        ctxTarget.fillStyle = "rgba(255,255,255,0.02)";
+        ctxTarget.fillRect(sx, sy, tileSize, tileSize);
+      }
+    }
+
+    function setupWorldLayers() {
+      worldLayers.backdrop = null;
+      worldLayers.backdropCtx = null;
+      worldLayers.background = null;
+      worldLayers.backgroundCtx = null;
+      worldLayers.terrain = null;
+      worldLayers.terrainCtx = null;
+    }
+
+    function redrawBackdrop() {
+      if (!worldLayers.backdropCtx) return;
+      const ctxTarget = worldLayers.backdropCtx;
+      ctxTarget.clearRect(0, 0, worldLayers.backdrop.width, worldLayers.backdrop.height);
+      if (assets.background) {
+        const img = assets.background;
+        const scale = Math.max(
+          1,
+          Math.ceil(viewWidth / img.naturalWidth),
+          Math.ceil(viewHeight / img.naturalHeight)
+        );
+        const dw = img.naturalWidth * scale;
+        const dh = img.naturalHeight * scale;
+        const dx = Math.floor((viewWidth - dw) / 2);
+        const dy = Math.floor((viewHeight - dh) / 2);
+        ctxTarget.drawImage(img, dx, dy, dw, dh);
+      } else {
+        ctxTarget.fillStyle = "#0b1220";
+        ctxTarget.fillRect(0, 0, viewWidth, viewHeight);
+      }
+    }
+
+    function redrawWorldLayers() {
+      if (!worldLayers.backgroundCtx || !worldLayers.terrainCtx) return;
+      const bgCtx = worldLayers.backgroundCtx;
+      const terrainCtx = worldLayers.terrainCtx;
+      bgCtx.clearRect(0, 0, worldLayers.background.width, worldLayers.background.height);
+      terrainCtx.clearRect(0, 0, worldLayers.terrain.width, worldLayers.terrain.height);
+      for (let x = 0; x < worldWidth; x++) {
+        for (let y = 0; y < worldHeight; y++) {
+          drawBackgroundCell(bgCtx, x, y, backgroundTiles[x][y]);
+          drawTileCell(terrainCtx, x, y, tiles[x][y]);
+        }
+      }
+    }
+
+    function updateTerrainCell(x, y) {
+      if (!worldLayers.terrainCtx) return;
+      const terrainCtx = worldLayers.terrainCtx;
+      terrainCtx.clearRect(x * tileSize, y * tileSize, tileSize, tileSize);
+      drawTileCell(terrainCtx, x, y, tiles[x][y]);
+    }
+
+    function drawTilesLive() {
+      const startY = Math.floor(camera.y / tileSize);
+      const endY = Math.ceil((camera.y + viewHeight) / tileSize);
+      for (let x = 0; x < worldWidth; x++) {
+        for (let y = startY; y <= endY && y < worldHeight; y++) {
+          const type = tiles[x][y];
+          if (type > 0) {
+            const { x: sx, y: sy } = worldToScreen(x, y);
+            if (mobileLayout) {
+              ctx.fillStyle =
+                type === 2 ? "#22c55e" :
+                type >= 5 ? "#94a3b8" :
+                type === 3 ? "#b45309" :
+                type === 4 ? "#92400e" :
+                "#8b5a2b";
+              ctx.fillRect(sx, sy, tileSize, tileSize);
+            } else {
+              const drawImg = (img) => ctx.drawImage(img, sx, sy, tileSize, tileSize);
+              if (type === 2 && assets.grass) drawImg(assets.grass);
+              else if (type === 3 && assets.dirtFh) drawImg(assets.dirtFh);
+              else if (type === 4 && assets.dirtAlt) drawImg(assets.dirtAlt);
+              else if (type === 5 && assets.stone) drawImg(assets.stone);
+              else if (type === 6 && assets.stone2) drawImg(assets.stone2);
+              else if (type === 7 && assets.stone3) drawImg(assets.stone3);
+              else if (assets.dirt) drawImg(assets.dirt);
+              else {
+                ctx.fillStyle = tileFillColor(type, y);
+                ctx.fillRect(sx, sy, tileSize, tileSize);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    function drawBackgroundTilesLive() {
+      const startY = Math.floor(camera.y / tileSize);
+      const endY = Math.ceil((camera.y + viewHeight) / tileSize);
+      for (let x = 0; x < worldWidth; x++) {
+        for (let y = startY; y <= endY && y < worldHeight; y++) {
+          if (tiles[x][y] > 0) continue;
+          const type = backgroundTiles[x][y];
+          if (type === BackgroundType.None) continue;
+          const { x: sx, y: sy } = worldToScreen(x, y);
+          if (mobileLayout) {
+            ctx.fillStyle =
+              type === BackgroundType.Grass ? "#14532d" :
+              type === BackgroundType.Stone ? "#334155" :
+              "#7c2d12";
+            ctx.fillRect(sx, sy, tileSize, tileSize);
+          } else {
+            let img = null;
+            if (type === BackgroundType.Grass) img = assets.grassBack;
+            else if (type === BackgroundType.Stone) img = assets.stoneBack;
+            else if (type === BackgroundType.Dirt) img = assets.dirtBack;
+            if (img) {
+              ctx.drawImage(img, sx, sy, tileSize, tileSize);
+            } else {
+              ctx.fillStyle = "rgba(255,255,255,0.02)";
+              ctx.fillRect(sx, sy, tileSize, tileSize);
+            }
+          }
+        }
+      }
     }
 
     for (let x = 0; x < worldWidth; x++) {
@@ -262,6 +436,10 @@
         backgroundTiles[x][y] = BackgroundType.Stone;
       }
     }
+
+    setupWorldLayers();
+    redrawBackdrop();
+    redrawWorldLayers();
 
     // Player state (center-based position in tile units)
     const player = {
@@ -332,7 +510,7 @@
       lockedDirection: null,
       moved: false,
     };
-    let mobileLayout = false;
+    var mobileLayout = false;
     const screenShake = { time: 0, duration: 0, amplitude: 0 };
 
     let lastTime = performance.now();
@@ -343,14 +521,14 @@
       const coarsePointer = window.matchMedia ? window.matchMedia("(pointer: coarse)").matches : false;
       mobileLayout = (navigator.maxTouchPoints > 0 || coarsePointer) && viewWidth < 1024;
       const rawDpr = window.devicePixelRatio || 1;
-      dpr = mobileLayout ? Math.min(rawDpr, 1.5) : Math.min(rawDpr, 2);
+      dpr = mobileLayout ? 1 : Math.min(rawDpr, 2);
       canvas.style.width = `${viewWidth}px`;
       canvas.style.height = `${viewHeight}px`;
       canvas.width = Math.floor(viewWidth * dpr);
       canvas.height = Math.floor(viewHeight * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.imageSmoothingEnabled = false;
-      camera.zoom = mobileLayout ? 2.35 : 2.8;
+      camera.zoom = mobileLayout ? 3.4 : 2.8;
       tileSize = Math.max(12, Math.floor((viewWidth / worldWidth) * camera.zoom));
       worldOffsetX = Math.max(0, Math.floor((viewWidth - worldWidth * tileSize) / 2));
       const gaugeScale = mobileLayout ? 0.76 : 1;
@@ -358,6 +536,9 @@
       bagGauge.h = Math.max(220, Math.round(320 * gaugeScale));
       bagGauge.spacing = Math.max(20, Math.round(32 * gaugeScale));
       bagGauge.margin = Math.max(12, Math.round(24 * gaugeScale));
+      setupWorldLayers();
+      redrawBackdrop();
+      redrawWorldLayers();
       snapCameraToPlayer();
     }
 
@@ -446,6 +627,7 @@
       if (placeable) {
         tiles[tx][ty] = dragState.type === "stone" ? 5 : 1;
         placedTiles.add(key);
+        updateTerrainCell(tx, ty);
       } else {
         bagGauge.amount[dragState.type] = Math.min(bagGauge.max, bagGauge.amount[dragState.type] + 1);
       }
@@ -739,6 +921,7 @@
       tiles[x][y] = 0;
       placedTiles.delete(key);
       bumpDigProgress.delete(key);
+      updateTerrainCell(x, y);
       addScreenShake(10, 0.2);
       const kind = tileType >= 5 ? "stone" : "dirt";
       spawnDirtChunks({ x: x + 0.5, y: y + 0.5 }, kind);
@@ -1044,54 +1227,6 @@
       lastGrounded = player.onGround;
     }
 
-    function drawTiles() {
-      const startY = Math.floor(camera.y / tileSize);
-      const endY = Math.ceil((camera.y + viewHeight) / tileSize);
-      for (let x = 0; x < worldWidth; x++) {
-        for (let y = startY; y <= endY && y < worldHeight; y++) {
-          const type = tiles[x][y];
-          if (type > 0) {
-            const { x: sx, y: sy } = worldToScreen(x, y);
-            const drawImg = (img) => ctx.drawImage(img, sx, sy, tileSize, tileSize);
-            if (type === 2 && assets.grass) drawImg(assets.grass);
-            else if (type === 3 && assets.dirtFh) drawImg(assets.dirtFh);
-            else if (type === 4 && assets.dirtAlt) drawImg(assets.dirtAlt);
-            else if (type === 5 && assets.stone) drawImg(assets.stone);
-            else if (type === 6 && assets.stone2) drawImg(assets.stone2);
-            else if (type === 7 && assets.stone3) drawImg(assets.stone3);
-            else if (assets.dirt) drawImg(assets.dirt);
-            else {
-              ctx.fillStyle = y % 2 === 0 ? "var(--dirt)" : "var(--dirt-shadow)";
-              ctx.fillRect(sx, sy, tileSize, tileSize);
-            }
-          }
-        }
-      }
-    }
-
-    function drawBackgroundTiles() {
-      const startY = Math.floor(camera.y / tileSize);
-      const endY = Math.ceil((camera.y + viewHeight) / tileSize);
-      for (let x = 0; x < worldWidth; x++) {
-        for (let y = startY; y <= endY && y < worldHeight; y++) {
-          if (tiles[x][y] > 0) continue;
-          const type = backgroundTiles[x][y];
-          if (type === BackgroundType.None) continue;
-          const { x: sx, y: sy } = worldToScreen(x, y);
-          let img = null;
-          if (type === BackgroundType.Grass) img = assets.grassBack;
-          else if (type === BackgroundType.Stone) img = assets.stoneBack;
-          else if (type === BackgroundType.Dirt) img = assets.dirtBack;
-          if (img) {
-            ctx.drawImage(img, sx, sy, tileSize, tileSize);
-          } else {
-            ctx.fillStyle = "rgba(255,255,255,0.02)";
-            ctx.fillRect(sx, sy, tileSize, tileSize);
-          }
-        }
-      }
-    }
-
     function drawCashMachine() {
       const frames = [
         assets.cashMachine[0],
@@ -1175,6 +1310,21 @@
         ctx.fillText(popup.text, anchor.x + 12, anchor.y - rise - index * 2);
       });
       ctx.restore();
+    }
+
+    function pathRoundRect(ctx, x, y, width, height, radius) {
+      const r = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + width - r, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+      ctx.lineTo(x + width, y + height - r);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+      ctx.lineTo(x + r, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
     }
 
     function updateFlyingDirts(dt) {
@@ -1310,8 +1460,7 @@
       ctx.fillStyle = "rgba(15, 23, 42, 0.7)";
       ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(x, y, width, height, 12);
+      pathRoundRect(ctx, x, y, width, height, 12);
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = "#e2e8f0";
@@ -1460,29 +1609,32 @@
     }
 
     function drawBackground() {
-      if (assets.background) {
-        const img = assets.background;
-        const scale = Math.max(
-          1,
-          Math.ceil(viewWidth / img.naturalWidth),
-          Math.ceil(viewHeight / img.naturalHeight)
-        );
-        const dw = img.naturalWidth * scale;
-        const dh = img.naturalHeight * scale;
-        const dx = Math.floor((viewWidth - dw) / 2);
-        const dy = Math.floor((viewHeight - dh) / 2);
-        ctx.drawImage(img, dx, dy, dw, dh);
-      } else {
-        ctx.fillStyle = "var(--bg)";
+      if (mobileLayout) {
+        ctx.fillStyle = "#0b1220";
         ctx.fillRect(0, 0, viewWidth, viewHeight);
+        return;
       }
+      if (worldLayers.backdrop) {
+        ctx.drawImage(worldLayers.backdrop, 0, 0, viewWidth, viewHeight);
+        return;
+      }
+      ctx.fillStyle = "#0b1220";
+      ctx.fillRect(0, 0, viewWidth, viewHeight);
     }
 
     function render() {
       ctx.imageSmoothingEnabled = false;
       drawBackground();
-      drawBackgroundTiles();
-      drawTiles();
+      if (mobileLayout && worldLayers.background) {
+        ctx.drawImage(worldLayers.background, worldOffsetX - camera.x, -camera.y);
+      } else {
+        drawBackgroundTilesLive();
+      }
+      if (mobileLayout && worldLayers.terrain) {
+        ctx.drawImage(worldLayers.terrain, worldOffsetX - camera.x, -camera.y);
+      } else {
+        drawTilesLive();
+      }
       drawCashMachine();
       drawBreakOverlay();
       drawBumpOverlays();
@@ -1725,7 +1877,11 @@
     window.addEventListener("resize", resizeCanvas);
 
     resizeCanvas();
-    assetReady.finally(() => requestAnimationFrame(loop));
+    assetReady.finally(() => {
+      redrawBackdrop();
+      redrawWorldLayers();
+      requestAnimationFrame(loop);
+    });
   </script>
 </body>
 </html>
