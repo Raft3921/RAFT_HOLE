@@ -469,7 +469,7 @@
       for (let ry = stoneLayerStartY; ry < worldHeight; ry += oreRegionSize) {
         if (ry >= hollowStartY && ry < hollowStartY + hollowHeight) continue;
         const regionRoll = tileNoise(rx, ry, 101);
-        if (regionRoll > 0.07) continue; // keep ores rare
+        if (regionRoll > 0.11) continue; // keep ores fairly rare, but a bit more common now
         const maxX = Math.min(oreRegionSize, worldWidth - rx);
         const maxY = Math.min(oreRegionSize, worldHeight - ry);
         const ox = rx + Math.floor(tileNoise(rx, ry, 103) * maxX);
