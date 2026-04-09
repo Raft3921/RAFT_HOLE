@@ -1093,50 +1093,48 @@
       startDigAt(targetX, targetY, mode);
     }
 
+    const gaugeTypes = ["dirt", "stone", "coal", "biotite", "agate"];
     const bagGauge = {
-      w: 48, // larger gauge width
-      h: 320, // larger gauge height
-      spacing: 32,
+      w: 58,
+      h: 320,
       margin: 24,
       max: 15,
       amount: { dirt: 0, stone: 0, coal: 0, biotite: 0, agate: 0 },
     };
 
-    function gaugeSlot(type) {
-      const index = type === "stone" ? 1 : type === "coal" ? 2 : type === "biotite" ? 3 : type === "agate" ? 4 : 0;
-      const x = bagGauge.margin + index * (bagGauge.w + bagGauge.spacing);
-      const y = bagGauge.margin;
+    function gaugeSlot() {
       return {
-        x,
-        y,
+        x: bagGauge.margin,
+        y: bagGauge.margin,
       };
     }
 
-    function gaugeTarget(type) {
-      const slot = gaugeSlot(type);
+    function gaugeTarget() {
+      const slot = gaugeSlot();
       return { x: slot.x + bagGauge.w / 2, y: slot.y + bagGauge.h / 2 };
     }
 
     function gaugeHitTest(px, py) {
-      const dirtSlot = gaugeSlot("dirt");
-      const stoneSlot = gaugeSlot("stone");
-      const coalSlot = gaugeSlot("coal");
-      const biotiteSlot = gaugeSlot("biotite");
-      const agateSlot = gaugeSlot("agate");
-      const inRect = (slot) =>
-        px >= slot.x && px <= slot.x + bagGauge.w && py >= slot.y && py <= slot.y + bagGauge.h;
-      if (inRect(dirtSlot)) return "dirt";
-      if (inRect(stoneSlot)) return "stone";
-      if (inRect(coalSlot)) return "coal";
-      if (inRect(biotiteSlot)) return "biotite";
-      if (inRect(agateSlot)) return "agate";
+      const slot = gaugeSlot();
+      const inRect = px >= slot.x && px <= slot.x + bagGauge.w && py >= slot.y && py <= slot.y + bagGauge.h;
+      if (!inRect) return null;
+      const innerTop = slot.y + 12;
+      const innerHeight = bagGauge.h - 24;
+      const bandHeight = innerHeight / gaugeTypes.length;
+      const index = clamp(Math.floor((py - innerTop) / bandHeight), 0, gaugeTypes.length - 1);
+      const type = gaugeTypes[index];
+      const count = clamp(bagGauge.amount[type] || 0, 0, bagGauge.max);
+      if (count <= 0) return null;
+      const bandBottom = innerTop + (index + 1) * bandHeight;
+      const fillHeight = bandHeight * (count / bagGauge.max);
+      if (py >= bandBottom - fillHeight && py <= bandBottom) return type;
       return null;
     }
 
     function spawnDirtChunks(origin, kind = "dirt") {
       const gaugeKey = kind === "stone" ? "stone" : kind === "coal" ? "coal" : kind === "biotite" ? "biotite" : kind === "agate" ? "agate" : "dirt";
       if (bagGauge.amount[gaugeKey] >= bagGauge.max) return; // storage full
-      const target = gaugeTarget(gaugeKey);
+      const target = gaugeTarget();
       const startScreen = worldToScreen(origin.x, origin.y);
       const dist = Math.hypot(target.x - startScreen.x, target.y - startScreen.y);
       const speed = 12; // much faster flight to bag
@@ -1163,7 +1161,7 @@
       const gaugeKey = kind === "stone" ? "stone" : kind === "coal" ? "coal" : kind === "biotite" ? "biotite" : kind === "agate" ? "agate" : "dirt";
       if (bagGauge.amount[gaugeKey] <= 0) return false;
       const target = worldToScreen(cashMachine.x + cashMachine.width / 2, cashMachine.y + cashMachine.height / 2);
-      const slot = gaugeSlot(gaugeKey);
+      const slot = gaugeSlot();
       bagGauge.amount[gaugeKey] -= 1;
       flyingDirts.push({
         start: { x: cashMachine.x + cashMachine.width / 2, y: cashMachine.y + cashMachine.height / 2 },
@@ -1460,15 +1458,7 @@
       return;
     }
 
-    function drawGaugeFill(type) {
-      const slot = gaugeSlot(type);
-      const count = clamp(bagGauge.amount[type] || 0, 0, bagGauge.max);
-      const fillHeight = count * 16; // scaled to match 8x gauge height (2px * 8)
-      if (fillHeight <= 0) return;
-      const innerX = slot.x + 12;
-      const innerW = 24;
-      const innerBottom = slot.y + bagGauge.h - 12;
-      const fillY = innerBottom - fillHeight;
+    function drawGaugeSegment(type, innerX, fillY, innerW, fillHeight) {
       const img =
         type === "coal"
           ? assets.coal
@@ -1503,6 +1493,42 @@
       ctx.restore();
     }
 
+    function drawGaugeFill() {
+      const slot = gaugeSlot();
+      const innerX = slot.x + 12;
+      const innerW = bagGauge.w - 24;
+      const innerTop = slot.y + 12;
+      const innerHeight = bagGauge.h - 24;
+      const bandHeight = innerHeight / gaugeTypes.length;
+      for (let index = 0; index < gaugeTypes.length; index++) {
+        const type = gaugeTypes[index];
+        const count = clamp(bagGauge.amount[type] || 0, 0, bagGauge.max);
+        const bandTop = innerTop + index * bandHeight;
+        const bandBottom = bandTop + bandHeight;
+        ctx.save();
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle =
+          type === "coal" ? "#111827" :
+          type === "biotite" ? "#4b5563" :
+          type === "agate" ? "#92400e" :
+          type === "stone" ? "#94a3b8" : "#f59e0b";
+        ctx.fillRect(innerX, bandTop, innerW, bandHeight);
+        ctx.restore();
+        const fillHeight = bandHeight * (count / bagGauge.max);
+        if (fillHeight <= 0) continue;
+        const fillY = bandBottom - fillHeight;
+        drawGaugeSegment(type, innerX, fillY, innerW, fillHeight);
+      }
+      ctx.save();
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.25)";
+      ctx.lineWidth = 1;
+      for (let index = 0; index < gaugeTypes.length; index++) {
+        const bandTop = innerTop + index * bandHeight;
+        ctx.strokeRect(innerX, bandTop, innerW, bandHeight);
+      }
+      ctx.restore();
+    }
+
     function drawGaugeFrame(slot) {
       if (assets.gauge) {
         ctx.drawImage(assets.gauge, slot.x, slot.y, bagGauge.w, bagGauge.h);
@@ -1513,39 +1539,22 @@
     }
 
     function drawBagGauges() {
-      const dirtSlot = gaugeSlot("dirt");
-      const stoneSlot = gaugeSlot("stone");
-      const coalSlot = gaugeSlot("coal");
-      const biotiteSlot = gaugeSlot("biotite");
-      const agateSlot = gaugeSlot("agate");
-      const dirtFull = bagGauge.amount.dirt >= bagGauge.max;
-      const stoneFull = bagGauge.amount.stone >= bagGauge.max;
-      const coalFull = bagGauge.amount.coal >= bagGauge.max;
-      const biotiteFull = bagGauge.amount.biotite >= bagGauge.max;
-      const agateFull = bagGauge.amount.agate >= bagGauge.max;
+      const slot = gaugeSlot();
+      const anyFull = gaugeTypes.some((type) => bagGauge.amount[type] >= bagGauge.max);
       ctx.save();
       ctx.globalAlpha = 0.95;
-      ctx.fillStyle = "rgba(0,0,0,0.45)";
       const pad = 16;
-      const width = agateSlot.x + bagGauge.w - dirtSlot.x;
+      const width = bagGauge.w;
       const height = bagGauge.h;
       const fullRectColor = "rgba(239,68,68,0.4)";
-      ctx.fillStyle = dirtFull || stoneFull || coalFull || biotiteFull || agateFull ? fullRectColor : "rgba(0,0,0,0.45)";
-      ctx.fillRect(dirtSlot.x - pad, dirtSlot.y - pad, width + pad * 2, height + pad * 2);
-      drawGaugeFill("dirt");
-      drawGaugeFill("stone");
-      drawGaugeFill("coal");
-      drawGaugeFill("biotite");
-      drawGaugeFill("agate");
-      drawGaugeFrame(dirtSlot);
-      drawGaugeFrame(stoneSlot);
-      drawGaugeFrame(coalSlot);
-      drawGaugeFrame(biotiteSlot);
-      drawGaugeFrame(agateSlot);
-      if (dirtFull || stoneFull || coalFull || biotiteFull || agateFull) {
+      ctx.fillStyle = anyFull ? fullRectColor : "rgba(0,0,0,0.45)";
+      ctx.fillRect(slot.x - pad, slot.y - pad, width + pad * 2, height + pad * 2);
+      drawGaugeFill();
+      drawGaugeFrame(slot);
+      if (anyFull) {
         ctx.strokeStyle = "rgba(248,113,113,0.9)";
         ctx.lineWidth = 3;
-        ctx.strokeRect(dirtSlot.x - pad + 1.5, dirtSlot.y - pad + 1.5, width + pad * 2 - 3, height + pad * 2 - 3);
+        ctx.strokeRect(slot.x - pad + 1.5, slot.y - pad + 1.5, width + pad * 2 - 3, height + pad * 2 - 3);
       }
       ctx.restore();
     }
