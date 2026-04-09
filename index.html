@@ -112,6 +112,7 @@
       stone: null,
       stone2: null,
       stone3: null,
+      coal: null,
       grassBack: null,
       dirtBack: null,
       stoneBack: null,
@@ -160,6 +161,9 @@
       });
       assets.stone3 = await loadImage("assets/stone3.png", (img) => {
         console.info(`石バリエーション stone3 サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
+      assets.coal = await loadImage("assets/coal.png", (img) => {
+        console.info(`coal 画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
       });
       assets.grassBack = await loadImage("assets/grass_back.png", (img) => {
         console.info(`草背景タイル画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
@@ -218,7 +222,7 @@
     }
     const assetReady = loadAssets();
 
-    // tile types: 0 = air, 1 = dirt, 2 = grass, 3 = dirt_fh, 4 = dirt2, 5 = stone, 6 = stone2, 7 = stone3
+    // tile types: 0 = air, 1 = dirt, 2 = grass, 3 = dirt_fh, 4 = dirt2, 5 = stone, 6 = stone2, 7 = stone3, 8 = coal
     const tiles = Array.from({ length: worldWidth }, () => Array(worldHeight).fill(0));
     const BackgroundType = {
       None: 0,
@@ -240,7 +244,7 @@
     function backgroundTypeFromTile(tileType) {
       if (tileType === 2) return BackgroundType.Grass;
       if (tileType === 1 || tileType === 3 || tileType === 4) return BackgroundType.Dirt;
-      if (tileType === 5 || tileType === 6 || tileType === 7) return BackgroundType.Stone;
+      if (tileType === 5 || tileType === 6 || tileType === 7 || tileType === 8) return BackgroundType.Stone;
       return BackgroundType.None;
     }
 
@@ -253,6 +257,7 @@
     }
 
     function tileFillColor(type, y) {
+      if (type === 8) return "#1f2937";
       if (type >= 5) return "#94a3b8";
       return y % 2 === 0 ? "#8b5a2b" : "#5d3b1a";
     }
@@ -268,6 +273,7 @@
       else if (type === 5 && assets.stone) drawImg(assets.stone);
       else if (type === 6 && assets.stone2) drawImg(assets.stone2);
       else if (type === 7 && assets.stone3) drawImg(assets.stone3);
+      else if (type === 8 && assets.coal) drawImg(assets.coal);
       else if (assets.dirt && type === 1) drawImg(assets.dirt);
       else {
         ctxTarget.fillStyle = tileFillColor(type, y);
@@ -408,8 +414,9 @@
           }
         } else if (y >= stoneLayerStartY) {
           const r = Math.random();
-          if (r < 0.1) tiles[x][y] = 6; // stone2
-          else if (r < 0.2) tiles[x][y] = 7; // stone3
+          if (r < 0.05) tiles[x][y] = 8; // coal
+          else if (r < 0.15) tiles[x][y] = 6; // stone2
+          else if (r < 0.25) tiles[x][y] = 7; // stone3
           else tiles[x][y] = 5; // base stone
         } else {
           const r = Math.random();
@@ -796,13 +803,15 @@
             const tileTop = ty;
             const tileBottom = ty + 1;
             const overlapY = Math.min(tileBottom, bottom) - Math.max(tileTop, top);
-            if (overlapY >= player.h * 0.98) {
+            if (overlapY >= player.h * 0.98 && !player.climbing) {
               applyBumpDamage(tileX, ty);
             }
-            player.vx = -Math.max(4, Math.abs(player.vx) * 0.8); // restored stronger rebound
+            player.vx = player.climbing ? 0 : -Math.max(4, Math.abs(player.vx) * 0.8); // avoid climb-driven wall damage
             facingLockTimer = 0.25;
-            bounceLock.active = true;
-            bounceLock.startX = player.x;
+            if (!player.climbing) {
+              bounceLock.active = true;
+              bounceLock.startX = player.x;
+            }
             break;
           }
         }
@@ -814,13 +823,15 @@
             const tileTop = ty;
             const tileBottom = ty + 1;
             const overlapY = Math.min(tileBottom, bottom) - Math.max(tileTop, top);
-            if (overlapY >= player.h * 0.98) {
+            if (overlapY >= player.h * 0.98 && !player.climbing) {
               applyBumpDamage(tileX, ty);
             }
-            player.vx = Math.max(4, Math.abs(player.vx) * 0.8); // restored stronger rebound
+            player.vx = player.climbing ? 0 : Math.max(4, Math.abs(player.vx) * 0.8); // avoid climb-driven wall damage
             facingLockTimer = 0.25;
-            bounceLock.active = true;
-            bounceLock.startX = player.x;
+            if (!player.climbing) {
+              bounceLock.active = true;
+              bounceLock.startX = player.x;
+            }
             break;
           }
         }
@@ -870,10 +881,10 @@
             const tileLeft = tx;
             const tileRight = tx + 1;
             const overlapX = Math.min(tileRight, right) - Math.max(tileLeft, left);
-            if (overlapX >= player.w * 0.98) {
+            if (overlapX >= player.w * 0.98 && !player.climbing) {
               applyBumpDamage(tx, tileY);
             }
-            player.vy = 2; // bounce downward slightly
+            player.vy = player.climbing ? 0 : 2; // avoid climb-driven wall damage
             break;
           }
         }
@@ -887,19 +898,37 @@
     function tileBreakDuration(x, y) {
       const t = (tiles[x]?.[y] || 0);
       const power = getDigPower();
-      const base = t >= 5 ? breakTime * 1.6 : breakTime; // stone types
+      const base =
+        t === 8
+          ? breakTime * 2.1
+          : t >= 5
+          ? breakTime * 1.25
+          : breakTime * 0.75;
       return base / power;
     }
 
     function resourceKeyFromTile(tileType) {
       if (tileType <= 0) return null;
+      if (tileType === 8) return "coal";
       return tileType >= 5 ? "stone" : "dirt";
+    }
+
+    function powerGainFromResource(key) {
+      if (key === "coal") return 0.03;
+      if (key === "stone") return 0.02;
+      return 0.01;
     }
 
     function storageFullForTile(tileType) {
       const key = resourceKeyFromTile(tileType);
       if (!key) return false;
       return bagGauge.amount[key] >= bagGauge.max;
+    }
+
+    function bumpDamageFractionForTile(tileType) {
+      if (tileType === 8) return 0.18;
+      if (tileType >= 5) return 0.25;
+      return 0.34;
     }
 
     function breakTileAt(x, y, tileType = tiles[x]?.[y]) {
@@ -914,7 +943,7 @@
       bumpDigProgress.delete(key);
       updateTerrainCell(x, y);
       addScreenShake(10, 0.2);
-      const kind = tileType >= 5 ? "stone" : "dirt";
+      const kind = resourceKeyFromTile(tileType) || "dirt";
       spawnDirtChunks({ x: x + 0.5, y: y + 0.5 }, kind);
       return true;
     }
@@ -924,7 +953,7 @@
       const key = `${x},${y}`;
       const needed = tileBreakDuration(x, y);
       if (storageFullForTile(tiles[x][y])) return false;
-      const increment = amount ?? needed * 0.22; // about 5 hits for dirt, similar pace to hold
+      const increment = amount ?? needed * bumpDamageFractionForTile(tiles[x][y]);
       const entry = bumpDigProgress.get(key) || { value: 0, cooldown: 0 };
       entry.value += increment;
       entry.cooldown = 2; // seconds before recovery begins
@@ -976,7 +1005,7 @@
       if (targetX < 0 || targetX >= worldWidth || targetY < 0 || targetY >= worldHeight) return false;
       if ((tiles[targetX]?.[targetY] || 0) <= 0) return false;
       if (storageFullForTile(tiles[targetX][targetY])) return false; // can't collect more of this type
-      if (bagGauge.amount.dirt >= bagGauge.max && bagGauge.amount.stone >= bagGauge.max) return false; // storage full
+      if (bagGauge.amount.dirt >= bagGauge.max && bagGauge.amount.stone >= bagGauge.max && bagGauge.amount.coal >= bagGauge.max) return false; // storage full
       const dxTile = Math.abs(targetX - Math.floor(player.x));
       const dyTile = Math.abs(targetY - Math.floor(player.y));
       if (dxTile > 1 || dyTile > 1) return false;
@@ -1021,11 +1050,11 @@
       spacing: 32,
       margin: 24,
       max: 15,
-      amount: { dirt: 0, stone: 0 },
+      amount: { dirt: 0, stone: 0, coal: 0 },
     };
 
     function gaugeSlot(type) {
-      const index = type === "stone" ? 1 : 0;
+      const index = type === "stone" ? 1 : type === "coal" ? 2 : 0;
       const x = bagGauge.margin + index * (bagGauge.w + bagGauge.spacing);
       const y = bagGauge.margin;
       return {
@@ -1042,15 +1071,17 @@
     function gaugeHitTest(px, py) {
       const dirtSlot = gaugeSlot("dirt");
       const stoneSlot = gaugeSlot("stone");
+      const coalSlot = gaugeSlot("coal");
       const inRect = (slot) =>
         px >= slot.x && px <= slot.x + bagGauge.w && py >= slot.y && py <= slot.y + bagGauge.h;
       if (inRect(dirtSlot)) return "dirt";
       if (inRect(stoneSlot)) return "stone";
+      if (inRect(coalSlot)) return "coal";
       return null;
     }
 
     function spawnDirtChunks(origin, kind = "dirt") {
-      const gaugeKey = kind === "stone" ? "stone" : "dirt";
+      const gaugeKey = kind === "stone" ? "stone" : kind === "coal" ? "coal" : "dirt";
       if (bagGauge.amount[gaugeKey] >= bagGauge.max) return; // storage full
       const target = gaugeTarget(gaugeKey);
       const startScreen = worldToScreen(origin.x, origin.y);
@@ -1076,7 +1107,7 @@
     }
 
     function spawnMachineSuction(kind = "dirt") {
-      const gaugeKey = kind === "stone" ? "stone" : "dirt";
+      const gaugeKey = kind === "stone" ? "stone" : kind === "coal" ? "coal" : "dirt";
       if (bagGauge.amount[gaugeKey] <= 0) return false;
       const target = worldToScreen(cashMachine.x + cashMachine.width / 2, cashMachine.y + cashMachine.height / 2);
       const slot = gaugeSlot(gaugeKey);
@@ -1109,7 +1140,7 @@
       cashMachine.suckTimer += dt;
       if (cashMachine.suckTimer >= cashMachine.suckInterval) {
         cashMachine.suckTimer -= cashMachine.suckInterval;
-        const kind = bagGauge.amount.dirt > 0 ? "dirt" : bagGauge.amount.stone > 0 ? "stone" : null;
+        const kind = bagGauge.amount.coal > 0 ? "coal" : bagGauge.amount.stone > 0 ? "stone" : bagGauge.amount.dirt > 0 ? "dirt" : null;
         if (!kind) return;
         if (!spawnMachineSuction(kind)) return;
       }
@@ -1324,11 +1355,11 @@
         dirt.t += dt;
         const total = dirt.upDuration + dirt.downDuration;
         if (dirt.t >= total) {
-          const key = dirt.kind === "stone" ? "stone" : "dirt";
+          const key = dirt.kind === "stone" ? "stone" : dirt.kind === "coal" ? "coal" : "dirt";
           if (dirt.transferKind === "machine") {
-            const gained = Math.min(maxDigPower, getDigPower() + digPowerGainPerDelivery);
+            const gained = Math.min(maxDigPower, getDigPower() + powerGainFromResource(key));
             player.digPower = Number(gained.toFixed(2));
-            pushPowerPopup(digPowerGainPerDelivery);
+            pushPowerPopup(powerGainFromResource(key));
             flyingDirts.splice(i, 1);
             continue;
           }
@@ -1376,7 +1407,9 @@
       const innerBottom = slot.y + bagGauge.h - 12;
       const fillY = innerBottom - fillHeight;
       const img =
-        type === "stone"
+        type === "coal"
+          ? assets.coal
+          : type === "stone"
           ? assets.stone || assets.stone2 || assets.stone3
           : assets.dirt || assets.dirtAlt || assets.dirtFh;
       ctx.save();
@@ -1393,7 +1426,7 @@
           ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, innerX, fillY, innerW, fillHeight);
         }
       } else {
-        ctx.fillStyle = type === "stone" ? "#94a3b8" : "#f59e0b";
+        ctx.fillStyle = type === "coal" ? "#111827" : type === "stone" ? "#94a3b8" : "#f59e0b";
         ctx.fillRect(innerX, fillY, innerW, fillHeight);
       }
       ctx.restore();
@@ -1411,22 +1444,26 @@
     function drawBagGauges() {
       const dirtSlot = gaugeSlot("dirt");
       const stoneSlot = gaugeSlot("stone");
+      const coalSlot = gaugeSlot("coal");
       const dirtFull = bagGauge.amount.dirt >= bagGauge.max;
       const stoneFull = bagGauge.amount.stone >= bagGauge.max;
+      const coalFull = bagGauge.amount.coal >= bagGauge.max;
       ctx.save();
       ctx.globalAlpha = 0.95;
       ctx.fillStyle = "rgba(0,0,0,0.45)";
       const pad = 16;
-      const width = stoneSlot.x + bagGauge.w - dirtSlot.x;
+      const width = coalSlot.x + bagGauge.w - dirtSlot.x;
       const height = bagGauge.h;
       const fullRectColor = "rgba(239,68,68,0.4)";
-      ctx.fillStyle = dirtFull || stoneFull ? fullRectColor : "rgba(0,0,0,0.45)";
+      ctx.fillStyle = dirtFull || stoneFull || coalFull ? fullRectColor : "rgba(0,0,0,0.45)";
       ctx.fillRect(dirtSlot.x - pad, dirtSlot.y - pad, width + pad * 2, height + pad * 2);
       drawGaugeFill("dirt");
       drawGaugeFill("stone");
+      drawGaugeFill("coal");
       drawGaugeFrame(dirtSlot);
       drawGaugeFrame(stoneSlot);
-      if (dirtFull || stoneFull) {
+      drawGaugeFrame(coalSlot);
+      if (dirtFull || stoneFull || coalFull) {
         ctx.strokeStyle = "rgba(248,113,113,0.9)";
         ctx.lineWidth = 3;
         ctx.strokeRect(dirtSlot.x - pad + 1.5, dirtSlot.y - pad + 1.5, width + pad * 2 - 3, height + pad * 2 - 3);
@@ -1553,7 +1590,10 @@
         const useStone =
           dirt.kind === "stone" && (assets.stone || assets.stone2 || assets.stone3);
         const stoneFrames = [assets.stone, assets.stone2, assets.stone3].filter(Boolean);
-        if (useStone && stoneFrames.length) {
+        const useCoal = dirt.kind === "coal" && assets.coal;
+        if (useCoal) {
+          ctx.drawImage(assets.coal, pos.x - size / 2, pos.y - size / 2, size, size);
+        } else if (useStone && stoneFrames.length) {
           const frame = stoneFrames[dirt.kindFrame ?? 0] || stoneFrames[0];
           ctx.drawImage(frame, pos.x - size / 2, pos.y - size / 2, size, size);
         } else if (assets.dirt) {
@@ -1693,6 +1733,7 @@
         inventory: {
           dirt: bagGauge.amount.dirt,
           stone: bagGauge.amount.stone,
+          coal: bagGauge.amount.coal,
           max: bagGauge.max,
         },
         touch: {
