@@ -657,10 +657,11 @@
     }
 
     function startGaugeDrag(pointerId, type, sx, sy) {
-      if (!type || bagGauge.amount[type] <= 0) return false;
-      bagGauge.amount[type] -= 1;
+      if (!type || !bagGauge.items.length) return false;
+      const topType = popGaugeItem();
+      if (!topType) return false;
       dragState.active = true;
-      dragState.type = type;
+      dragState.type = topType;
       dragState.screenX = sx;
       dragState.screenY = sy;
       dragState.pointerId = pointerId ?? null;
@@ -678,7 +679,7 @@
         placedTiles.add(key);
         updateTerrainCell(tx, ty);
       } else {
-        bagGauge.amount[dragState.type] = Math.min(bagGauge.max, bagGauge.amount[dragState.type] + 1);
+        pushGaugeItem(dragState.type);
       }
       dragState.active = false;
       dragState.type = null;
@@ -976,9 +977,8 @@
     }
 
     function storageFullForTile(tileType) {
-      const key = resourceKeyFromTile(tileType);
-      if (!key) return false;
-      return bagGauge.amount[key] >= bagGauge.max;
+      if (!resourceKeyFromTile(tileType)) return false;
+      return !gaugeHasSpace();
     }
 
     function bumpDamageFractionForTile(tileType) {
@@ -1061,14 +1061,7 @@
       if (targetX < 0 || targetX >= worldWidth || targetY < 0 || targetY >= worldHeight) return false;
       if ((tiles[targetX]?.[targetY] || 0) <= 0) return false;
       if (storageFullForTile(tiles[targetX][targetY])) return false; // can't collect more of this type
-      if (
-        bagGauge.amount.dirt >= bagGauge.max &&
-        bagGauge.amount.stone >= bagGauge.max &&
-        bagGauge.amount.coal >= bagGauge.max &&
-        bagGauge.amount.biotite >= bagGauge.max &&
-        bagGauge.amount.agate >= bagGauge.max &&
-        bagGauge.amount.quartz >= bagGauge.max
-      ) return false; // storage full
+      if (!gaugeHasSpace()) return false; // storage full
       const dxTile = Math.abs(targetX - Math.floor(player.x));
       const dyTile = Math.abs(targetY - Math.floor(player.y));
       if (dxTile > 1 || dyTile > 1) return false;
@@ -1107,13 +1100,13 @@
       startDigAt(targetX, targetY, mode);
     }
 
-    const gaugeTypes = ["dirt", "stone", "coal", "biotite", "agate", "quartz"];
     const bagGauge = {
       w: 58,
       h: 320,
       margin: 24,
       max: 15,
       amount: { dirt: 0, stone: 0, coal: 0, biotite: 0, agate: 0, quartz: 0 },
+      items: [],
     };
 
     function gaugeSlot() {
@@ -1128,26 +1121,53 @@
       return { x: slot.x + bagGauge.w / 2, y: slot.y + bagGauge.h / 2 };
     }
 
+    function gaugeColor(type) {
+      if (type === "dirt") return "#C05200";
+      if (type === "stone") return "#7B7B7B";
+      if (type === "coal") return "#222526";
+      if (type === "biotite") return "#625038";
+      if (type === "agate") return "#773E0F";
+      if (type === "quartz") return "#C7E1EA";
+      return "#f59e0b";
+    }
+
+    function gaugeTotalCount() {
+      return bagGauge.items.length;
+    }
+
+    function gaugeHasSpace() {
+      return gaugeTotalCount() < bagGauge.max;
+    }
+
+    function pushGaugeItem(type) {
+      if (!type || !gaugeHasSpace()) return false;
+      bagGauge.items.push(type);
+      bagGauge.amount[type] = (bagGauge.amount[type] || 0) + 1;
+      return true;
+    }
+
+    function popGaugeItem() {
+      const type = bagGauge.items.pop();
+      if (!type) return null;
+      bagGauge.amount[type] = Math.max(0, (bagGauge.amount[type] || 0) - 1);
+      return type;
+    }
+
     function gaugeHitTest(px, py) {
       const slot = gaugeSlot();
       const inRect = px >= slot.x && px <= slot.x + bagGauge.w && py >= slot.y && py <= slot.y + bagGauge.h;
       if (!inRect) return null;
-      const innerTop = slot.y + 12;
-      const innerHeight = bagGauge.h - 24;
-      const bandHeight = innerHeight / gaugeTypes.length;
-      const index = clamp(Math.floor((py - innerTop) / bandHeight), 0, gaugeTypes.length - 1);
-      const type = gaugeTypes[index];
-      const count = clamp(bagGauge.amount[type] || 0, 0, bagGauge.max);
-      if (count <= 0) return null;
-      const bandBottom = innerTop + (index + 1) * bandHeight;
-      const fillHeight = bandHeight * (count / bagGauge.max);
-      if (py >= bandBottom - fillHeight && py <= bandBottom) return type;
-      return null;
+      if (!bagGauge.items.length) return null;
+      const innerBottom = slot.y + bagGauge.h - 12;
+      const blockSize = Math.max(10, Math.min(bagGauge.w - 24, Math.floor((bagGauge.h - 24) / bagGauge.max)));
+      const filledTop = innerBottom - bagGauge.items.length * blockSize;
+      if (py < filledTop || py > innerBottom) return null;
+      return bagGauge.items[bagGauge.items.length - 1];
     }
 
     function spawnDirtChunks(origin, kind = "dirt") {
       const gaugeKey = kind === "stone" ? "stone" : kind === "coal" ? "coal" : kind === "biotite" ? "biotite" : kind === "agate" ? "agate" : kind === "quartz" ? "quartz" : "dirt";
-      if (bagGauge.amount[gaugeKey] >= bagGauge.max) return; // storage full
+      if (!gaugeHasSpace()) return; // storage full
       const target = gaugeTarget();
       const startScreen = worldToScreen(origin.x, origin.y);
       const dist = Math.hypot(target.x - startScreen.x, target.y - startScreen.y);
@@ -1171,12 +1191,12 @@
       });
     }
 
-    function spawnMachineSuction(kind = "dirt") {
-      const gaugeKey = kind === "stone" ? "stone" : kind === "coal" ? "coal" : kind === "biotite" ? "biotite" : kind === "agate" ? "agate" : kind === "quartz" ? "quartz" : "dirt";
-      if (bagGauge.amount[gaugeKey] <= 0) return false;
+    function spawnMachineSuction() {
+      if (!bagGauge.items.length) return false;
       const target = worldToScreen(cashMachine.x + cashMachine.width / 2, cashMachine.y + cashMachine.height / 2);
       const slot = gaugeSlot();
-      bagGauge.amount[gaugeKey] -= 1;
+      const topType = popGaugeItem();
+      if (!topType) return false;
       flyingDirts.push({
         start: { x: cashMachine.x + cashMachine.width / 2, y: cashMachine.y + cashMachine.height / 2 },
         startScreen: { x: slot.x + bagGauge.w / 2, y: slot.y + bagGauge.h / 2 },
@@ -1187,7 +1207,7 @@
         upDuration: 0.16,
         downDuration: 0.28,
         size: tileSize * (0.28 + Math.random() * 0.18),
-        kind,
+        kind: topType,
         transferKind: "machine",
       });
       return true;
@@ -1205,15 +1225,7 @@
       cashMachine.suckTimer += dt;
       if (cashMachine.suckTimer >= cashMachine.suckInterval) {
         cashMachine.suckTimer -= cashMachine.suckInterval;
-        const kind =
-          bagGauge.amount.quartz > 0 ? "quartz" :
-          bagGauge.amount.agate > 0 ? "agate" :
-          bagGauge.amount.biotite > 0 ? "biotite" :
-          bagGauge.amount.coal > 0 ? "coal" :
-          bagGauge.amount.stone > 0 ? "stone" :
-          bagGauge.amount.dirt > 0 ? "dirt" : null;
-        if (!kind) return;
-        if (!spawnMachineSuction(kind)) return;
+        if (!spawnMachineSuction()) return;
       }
     }
 
@@ -1440,13 +1452,11 @@
             flyingDirts.splice(i, 1);
             continue;
           }
-          if (bagGauge.amount[key] >= bagGauge.max) {
+          if (!gaugeHasSpace()) {
             flyingDirts.splice(i, 1);
             continue;
           }
-          if (bagGauge.amount[key] < bagGauge.max) {
-            bagGauge.amount[key] += 1;
-          }
+          pushGaugeItem(key);
           flyingDirts.splice(i, 1);
         }
       }
@@ -1474,55 +1484,37 @@
       return;
     }
 
-    function gaugeColor(type) {
-      if (type === "dirt") return "#C05200";
-      if (type === "stone") return "#7B7B7B";
-      if (type === "coal") return "#222526";
-      if (type === "biotite") return "#625038";
-      if (type === "agate") return "#773E0F";
-      if (type === "quartz") return "#C7E1EA";
-      return "#f59e0b";
-    }
-
     function drawGaugeFill() {
       const slot = gaugeSlot();
       const innerX = slot.x + 12;
       const innerW = bagGauge.w - 24;
       const innerTop = slot.y + 12;
-      const innerHeight = bagGauge.h - 24;
-      const bandHeight = innerHeight / gaugeTypes.length;
-      for (let index = 0; index < gaugeTypes.length; index++) {
-        const type = gaugeTypes[index];
-        const count = clamp(bagGauge.amount[type] || 0, 0, bagGauge.max);
-        const bandTop = innerTop + index * bandHeight;
-        const bandBottom = bandTop + bandHeight;
-        ctx.save();
-        ctx.globalAlpha = 0.22;
-        ctx.fillStyle = gaugeColor(type);
-        ctx.fillRect(innerX, bandTop, innerW, bandHeight);
-        ctx.restore();
-        const blockSize = Math.max(5, Math.floor(Math.min(innerW, bandHeight - 2) / 4));
-        const cols = Math.max(1, Math.floor(innerW / blockSize));
-        const rows = Math.max(1, Math.floor((bandHeight - 2) / blockSize));
-        const maxBlocks = cols * rows;
-        const blocks = Math.min(count, maxBlocks);
-        for (let i = 0; i < blocks; i++) {
-          const col = i % cols;
-          const row = Math.floor(i / cols);
-          const x = innerX + col * blockSize;
-          const y = bandBottom - (row + 1) * blockSize;
-          ctx.fillStyle = gaugeColor(type);
-          ctx.fillRect(x, y, blockSize, blockSize);
-        }
-      }
+      const innerBottom = slot.y + bagGauge.h - 12;
+      const blockSize = Math.max(10, Math.min(innerW, Math.floor((innerBottom - innerTop) / bagGauge.max)));
+      const x = innerX + Math.floor((innerW - blockSize) / 2);
+      const startY = innerBottom - blockSize;
+
       ctx.save();
-      ctx.strokeStyle = "rgba(15, 23, 42, 0.25)";
-      ctx.lineWidth = 1;
-      for (let index = 0; index < gaugeTypes.length; index++) {
-        const bandTop = innerTop + index * bandHeight;
-        ctx.strokeRect(innerX, bandTop, innerW, bandHeight);
-      }
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      ctx.fillRect(innerX, innerTop, innerW, innerBottom - innerTop);
       ctx.restore();
+
+      for (let i = 0; i < bagGauge.max; i++) {
+        const y = startY - i * blockSize;
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,255,255,0.12)";
+        ctx.strokeRect(x + 0.5, y + 0.5, blockSize - 1, blockSize - 1);
+        ctx.restore();
+      }
+
+      for (let i = 0; i < bagGauge.items.length; i++) {
+        const type = bagGauge.items[i];
+        const y = startY - i * blockSize;
+        ctx.fillStyle = gaugeColor(type);
+        ctx.fillRect(x, y, blockSize, blockSize);
+        ctx.strokeStyle = "rgba(0,0,0,0.18)";
+        ctx.strokeRect(x + 0.5, y + 0.5, blockSize - 1, blockSize - 1);
+      }
     }
 
     function drawGaugeFrame(slot) {
@@ -1536,7 +1528,7 @@
 
     function drawBagGauges() {
       const slot = gaugeSlot();
-      const anyFull = gaugeTypes.some((type) => bagGauge.amount[type] >= bagGauge.max);
+      const anyFull = gaugeTotalCount() >= bagGauge.max;
       ctx.save();
       ctx.globalAlpha = 0.95;
       const pad = 16;
@@ -1830,6 +1822,7 @@
           biotite: bagGauge.amount.biotite,
           agate: bagGauge.amount.agate,
           quartz: bagGauge.amount.quartz,
+          total: bagGauge.items.length,
           max: bagGauge.max,
         },
         touch: {
