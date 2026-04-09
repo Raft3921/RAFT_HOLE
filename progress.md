@@ -21,3 +21,4 @@ Progress:
 - Reduced ore spawn density and switched stone-layer ore placement to sparse region-based seeding so ores no longer appear in dense diagonal streaks.
 - Consolidated the five separate inventory gauges into one stacked gauge with fixed layers for dirt, stone, coal, biotite, and agate. Each layer is still individually selectable for drag-out, but the UI now reads as a single meter.
 - Added the new image assets to the repository commit set, including `assets/coal.png`, `assets/biotite.png`, `assets/agate.png`, and `assets/quartz.png`.
+- Reworked the inventory gauge fill to use solid colored square blocks instead of resource images. Added `quartz` as a sixth stored resource layer so the gauge can show the requested `C7E1EA` color alongside the other materials.

@@ -115,6 +115,7 @@
       coal: null,
       biotite: null,
       agate: null,
+      quartz: null,
       grassBack: null,
       dirtBack: null,
       stoneBack: null,
@@ -173,6 +174,9 @@
       assets.agate = await loadImage("assets/agate.png", (img) => {
         console.info(`agate 画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
       });
+      assets.quartz = await loadImage("assets/quartz.png", (img) => {
+        console.info(`quartz 画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
+      });
       assets.grassBack = await loadImage("assets/grass_back.png", (img) => {
         console.info(`草背景タイル画像サイズ: ${img.naturalWidth} x ${img.naturalHeight} ピクセル`);
       });
@@ -230,7 +234,7 @@
     }
     const assetReady = loadAssets();
 
-    // tile types: 0 = air, 1 = dirt, 2 = grass, 3 = dirt_fh, 4 = dirt2, 5 = stone, 6 = stone2, 7 = stone3, 8 = coal, 9 = biotite, 10 = agate
+    // tile types: 0 = air, 1 = dirt, 2 = grass, 3 = dirt_fh, 4 = dirt2, 5 = stone, 6 = stone2, 7 = stone3, 8 = coal, 9 = biotite, 10 = agate, 11 = quartz
     const tiles = Array.from({ length: worldWidth }, () => Array(worldHeight).fill(0));
     const BackgroundType = {
       None: 0,
@@ -273,9 +277,10 @@
     }
 
     function tileFillColor(type, y) {
-      if (type === 8) return "#1f2937";
-      if (type === 9) return "#4b5563";
-      if (type === 10) return "#92400e";
+      if (type === 8) return "#222526";
+      if (type === 9) return "#625038";
+      if (type === 10) return "#773E0F";
+      if (type === 11) return "#C7E1EA";
       if (type >= 5) return "#94a3b8";
       return y % 2 === 0 ? "#8b5a2b" : "#5d3b1a";
     }
@@ -294,6 +299,7 @@
       else if (type === 8 && assets.coal) drawImg(assets.coal);
       else if (type === 9 && assets.biotite) drawImg(assets.biotite);
       else if (type === 10 && assets.agate) drawImg(assets.agate);
+      else if (type === 11 && assets.quartz) drawImg(assets.quartz);
       else if (assets.dirt && type === 1) drawImg(assets.dirt);
       else {
         ctxTarget.fillStyle = tileFillColor(type, y);
@@ -387,6 +393,7 @@
             else if (type === 8 && assets.coal) drawImg(assets.coal);
             else if (type === 9 && assets.biotite) drawImg(assets.biotite);
             else if (type === 10 && assets.agate) drawImg(assets.agate);
+            else if (type === 11 && assets.quartz) drawImg(assets.quartz);
             else if (assets.dirt && type === 1) drawImg(assets.dirt);
             else {
               ctx.fillStyle = tileFillColor(type, y);
@@ -471,7 +478,11 @@
         if (oy < stoneLayerStartY || oy >= worldHeight) continue;
         if (oy >= hollowStartY && oy < hollowStartY + hollowHeight) continue;
         const oreTypeRoll = tileNoise(rx, ry, 109);
-        tiles[ox][oy] = oreTypeRoll < 0.34 ? 8 : oreTypeRoll < 0.67 ? 9 : 10;
+        tiles[ox][oy] =
+          oreTypeRoll < 0.24 ? 8 :
+          oreTypeRoll < 0.52 ? 9 :
+          oreTypeRoll < 0.8 ? 10 :
+          11;
       }
     }
 
@@ -939,7 +950,7 @@
       const t = (tiles[x]?.[y] || 0);
       const power = getDigPower();
       const base =
-        t >= 8 && t <= 10
+        t >= 8 && t <= 11
           ? breakTime * 2.1
           : t >= 5
           ? breakTime * 1.25
@@ -952,12 +963,14 @@
       if (tileType === 8) return "coal";
       if (tileType === 9) return "biotite";
       if (tileType === 10) return "agate";
+      if (tileType === 11) return "quartz";
       return tileType >= 5 ? "stone" : "dirt";
     }
 
     function powerGainFromResource(key) {
       if (key === "coal") return 0.03;
       if (key === "biotite" || key === "agate") return 0.04;
+      if (key === "quartz") return 0.05;
       if (key === "stone") return 0.02;
       return 0.01;
     }
@@ -969,7 +982,7 @@
     }
 
     function bumpDamageFractionForTile(tileType) {
-      if (tileType >= 8 && tileType <= 10) return 0.18;
+      if (tileType >= 8 && tileType <= 11) return 0.18;
       if (tileType >= 5) return 0.25;
       return 0.34;
     }
@@ -1053,7 +1066,8 @@
         bagGauge.amount.stone >= bagGauge.max &&
         bagGauge.amount.coal >= bagGauge.max &&
         bagGauge.amount.biotite >= bagGauge.max &&
-        bagGauge.amount.agate >= bagGauge.max
+        bagGauge.amount.agate >= bagGauge.max &&
+        bagGauge.amount.quartz >= bagGauge.max
       ) return false; // storage full
       const dxTile = Math.abs(targetX - Math.floor(player.x));
       const dyTile = Math.abs(targetY - Math.floor(player.y));
@@ -1093,13 +1107,13 @@
       startDigAt(targetX, targetY, mode);
     }
 
-    const gaugeTypes = ["dirt", "stone", "coal", "biotite", "agate"];
+    const gaugeTypes = ["dirt", "stone", "coal", "biotite", "agate", "quartz"];
     const bagGauge = {
       w: 58,
       h: 320,
       margin: 24,
       max: 15,
-      amount: { dirt: 0, stone: 0, coal: 0, biotite: 0, agate: 0 },
+      amount: { dirt: 0, stone: 0, coal: 0, biotite: 0, agate: 0, quartz: 0 },
     };
 
     function gaugeSlot() {
@@ -1132,7 +1146,7 @@
     }
 
     function spawnDirtChunks(origin, kind = "dirt") {
-      const gaugeKey = kind === "stone" ? "stone" : kind === "coal" ? "coal" : kind === "biotite" ? "biotite" : kind === "agate" ? "agate" : "dirt";
+      const gaugeKey = kind === "stone" ? "stone" : kind === "coal" ? "coal" : kind === "biotite" ? "biotite" : kind === "agate" ? "agate" : kind === "quartz" ? "quartz" : "dirt";
       if (bagGauge.amount[gaugeKey] >= bagGauge.max) return; // storage full
       const target = gaugeTarget();
       const startScreen = worldToScreen(origin.x, origin.y);
@@ -1158,7 +1172,7 @@
     }
 
     function spawnMachineSuction(kind = "dirt") {
-      const gaugeKey = kind === "stone" ? "stone" : kind === "coal" ? "coal" : kind === "biotite" ? "biotite" : kind === "agate" ? "agate" : "dirt";
+      const gaugeKey = kind === "stone" ? "stone" : kind === "coal" ? "coal" : kind === "biotite" ? "biotite" : kind === "agate" ? "agate" : kind === "quartz" ? "quartz" : "dirt";
       if (bagGauge.amount[gaugeKey] <= 0) return false;
       const target = worldToScreen(cashMachine.x + cashMachine.width / 2, cashMachine.y + cashMachine.height / 2);
       const slot = gaugeSlot();
@@ -1192,6 +1206,7 @@
       if (cashMachine.suckTimer >= cashMachine.suckInterval) {
         cashMachine.suckTimer -= cashMachine.suckInterval;
         const kind =
+          bagGauge.amount.quartz > 0 ? "quartz" :
           bagGauge.amount.agate > 0 ? "agate" :
           bagGauge.amount.biotite > 0 ? "biotite" :
           bagGauge.amount.coal > 0 ? "coal" :
@@ -1416,6 +1431,7 @@
             dirt.kind === "coal" ? "coal" :
             dirt.kind === "biotite" ? "biotite" :
             dirt.kind === "agate" ? "agate" :
+            dirt.kind === "quartz" ? "quartz" :
             "dirt";
           if (dirt.transferKind === "machine") {
             const gained = Math.min(maxDigPower, getDigPower() + powerGainFromResource(key));
@@ -1458,39 +1474,14 @@
       return;
     }
 
-    function drawGaugeSegment(type, innerX, fillY, innerW, fillHeight) {
-      const img =
-        type === "coal"
-          ? assets.coal
-          : type === "biotite"
-          ? assets.biotite
-          : type === "agate"
-          ? assets.agate
-          : type === "stone"
-          ? assets.stone || assets.stone2 || assets.stone3
-          : assets.dirt || assets.dirtAlt || assets.dirtFh;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(innerX, fillY, innerW, fillHeight);
-      ctx.clip();
-      if (img) {
-        const pattern = ctx.createPattern(img, "repeat");
-        if (pattern) {
-          ctx.translate(innerX, fillY);
-          ctx.fillStyle = pattern;
-          ctx.fillRect(0, 0, innerW, fillHeight);
-        } else {
-          ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, innerX, fillY, innerW, fillHeight);
-        }
-      } else {
-        ctx.fillStyle =
-          type === "coal" ? "#111827" :
-          type === "biotite" ? "#4b5563" :
-          type === "agate" ? "#92400e" :
-          type === "stone" ? "#94a3b8" : "#f59e0b";
-        ctx.fillRect(innerX, fillY, innerW, fillHeight);
-      }
-      ctx.restore();
+    function gaugeColor(type) {
+      if (type === "dirt") return "#C05200";
+      if (type === "stone") return "#7B7B7B";
+      if (type === "coal") return "#222526";
+      if (type === "biotite") return "#625038";
+      if (type === "agate") return "#773E0F";
+      if (type === "quartz") return "#C7E1EA";
+      return "#f59e0b";
     }
 
     function drawGaugeFill() {
@@ -1506,18 +1497,23 @@
         const bandTop = innerTop + index * bandHeight;
         const bandBottom = bandTop + bandHeight;
         ctx.save();
-        ctx.globalAlpha = 0.18;
-        ctx.fillStyle =
-          type === "coal" ? "#111827" :
-          type === "biotite" ? "#4b5563" :
-          type === "agate" ? "#92400e" :
-          type === "stone" ? "#94a3b8" : "#f59e0b";
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = gaugeColor(type);
         ctx.fillRect(innerX, bandTop, innerW, bandHeight);
         ctx.restore();
-        const fillHeight = bandHeight * (count / bagGauge.max);
-        if (fillHeight <= 0) continue;
-        const fillY = bandBottom - fillHeight;
-        drawGaugeSegment(type, innerX, fillY, innerW, fillHeight);
+        const blockSize = Math.max(5, Math.floor(Math.min(innerW, bandHeight - 2) / 4));
+        const cols = Math.max(1, Math.floor(innerW / blockSize));
+        const rows = Math.max(1, Math.floor((bandHeight - 2) / blockSize));
+        const maxBlocks = cols * rows;
+        const blocks = Math.min(count, maxBlocks);
+        for (let i = 0; i < blocks; i++) {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          const x = innerX + col * blockSize;
+          const y = bandBottom - (row + 1) * blockSize;
+          ctx.fillStyle = gaugeColor(type);
+          ctx.fillRect(x, y, blockSize, blockSize);
+        }
       }
       ctx.save();
       ctx.strokeStyle = "rgba(15, 23, 42, 0.25)";
@@ -1681,12 +1677,15 @@
         const useCoal = dirt.kind === "coal" && assets.coal;
         const useBiotite = dirt.kind === "biotite" && assets.biotite;
         const useAgate = dirt.kind === "agate" && assets.agate;
+        const useQuartz = dirt.kind === "quartz" && assets.quartz;
         if (useCoal) {
           ctx.drawImage(assets.coal, pos.x - size / 2, pos.y - size / 2, size, size);
         } else if (useBiotite) {
           ctx.drawImage(assets.biotite, pos.x - size / 2, pos.y - size / 2, size, size);
         } else if (useAgate) {
           ctx.drawImage(assets.agate, pos.x - size / 2, pos.y - size / 2, size, size);
+        } else if (useQuartz) {
+          ctx.drawImage(assets.quartz, pos.x - size / 2, pos.y - size / 2, size, size);
         } else if (useStone && stoneFrames.length) {
           const frame = stoneFrames[dirt.kindFrame ?? 0] || stoneFrames[0];
           ctx.drawImage(frame, pos.x - size / 2, pos.y - size / 2, size, size);
@@ -1830,6 +1829,7 @@
           coal: bagGauge.amount.coal,
           biotite: bagGauge.amount.biotite,
           agate: bagGauge.amount.agate,
+          quartz: bagGauge.amount.quartz,
           max: bagGauge.max,
         },
         touch: {
