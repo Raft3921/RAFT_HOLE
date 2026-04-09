@@ -264,6 +264,14 @@
       backgroundTiles[x][y] = bg;
     }
 
+    function tileNoise(x, y, salt = 0) {
+      let n = Math.imul(x + 374761393, 668265263) ^ Math.imul(y + 1274126177, 2246822519) ^ salt;
+      n = (n ^ (n >>> 13)) >>> 0;
+      n = Math.imul(n, 1274126177) >>> 0;
+      n = (n ^ (n >>> 16)) >>> 0;
+      return n / 4294967295;
+    }
+
     function tileFillColor(type, y) {
       if (type === 8) return "#1f2937";
       if (type === 9) return "#4b5563";
@@ -428,12 +436,9 @@
             tiles[x][y] = 0; // hollow chamber
           }
         } else if (y >= stoneLayerStartY) {
-          const r = Math.random();
-          if (r < 0.03) tiles[x][y] = 8; // coal
-          else if (r < 0.05) tiles[x][y] = 9; // biotite
-          else if (r < 0.07) tiles[x][y] = 10; // agate
-          else if (r < 0.17) tiles[x][y] = 6; // stone2
-          else if (r < 0.27) tiles[x][y] = 7; // stone3
+          const detail = tileNoise(x, y, 23);
+          if (detail < 0.08) tiles[x][y] = 6; // stone2
+          else if (detail < 0.16) tiles[x][y] = 7; // stone3
           else tiles[x][y] = 5; // base stone
         } else {
           const r = Math.random();
@@ -449,6 +454,24 @@
     for (let x = 1; x < worldWidth - 1; x++) {
       for (let y = hollowStartY; y < hollowStartY + hollowHeight; y++) {
         backgroundTiles[x][y] = BackgroundType.Stone;
+      }
+    }
+
+    const oreRegionSize = 6;
+    for (let rx = 0; rx < worldWidth; rx += oreRegionSize) {
+      for (let ry = stoneLayerStartY; ry < worldHeight; ry += oreRegionSize) {
+        if (ry >= hollowStartY && ry < hollowStartY + hollowHeight) continue;
+        const regionRoll = tileNoise(rx, ry, 101);
+        if (regionRoll > 0.07) continue; // keep ores rare
+        const maxX = Math.min(oreRegionSize, worldWidth - rx);
+        const maxY = Math.min(oreRegionSize, worldHeight - ry);
+        const ox = rx + Math.floor(tileNoise(rx, ry, 103) * maxX);
+        const oy = ry + Math.floor(tileNoise(rx, ry, 107) * maxY);
+        if (ox <= 0 || ox >= worldWidth - 1) continue;
+        if (oy < stoneLayerStartY || oy >= worldHeight) continue;
+        if (oy >= hollowStartY && oy < hollowStartY + hollowHeight) continue;
+        const oreTypeRoll = tileNoise(rx, ry, 109);
+        tiles[ox][oy] = oreTypeRoll < 0.34 ? 8 : oreTypeRoll < 0.67 ? 9 : 10;
       }
     }
 
