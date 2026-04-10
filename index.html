@@ -472,17 +472,41 @@
         if (regionRoll > 0.11) continue; // keep ores fairly rare, but a bit more common now
         const maxX = Math.min(oreRegionSize, worldWidth - rx);
         const maxY = Math.min(oreRegionSize, worldHeight - ry);
-        const ox = rx + Math.floor(tileNoise(rx, ry, 103) * maxX);
-        const oy = ry + Math.floor(tileNoise(rx, ry, 107) * maxY);
-        if (ox <= 0 || ox >= worldWidth - 1) continue;
-        if (oy < stoneLayerStartY || oy >= worldHeight) continue;
-        if (oy >= hollowStartY && oy < hollowStartY + hollowHeight) continue;
         const oreTypeRoll = tileNoise(rx, ry, 109);
-        tiles[ox][oy] =
+        const oreType =
           oreTypeRoll < 0.24 ? 8 :
           oreTypeRoll < 0.52 ? 9 :
           oreTypeRoll < 0.8 ? 10 :
           11;
+        const clusterSize = 1 + Math.floor(tileNoise(rx, ry, 113) * 5); // 1..5 blocks
+        const seedX = rx + Math.floor(tileNoise(rx, ry, 103) * maxX);
+        const seedY = ry + Math.floor(tileNoise(rx, ry, 107) * maxY);
+        const cluster = [{ x: seedX, y: seedY }];
+        const occupied = new Set();
+        const keyFor = (x, y) => `${x},${y}`;
+        const isValid = (x, y) =>
+          x > 0 &&
+          x < worldWidth - 1 &&
+          y >= stoneLayerStartY &&
+          y < worldHeight &&
+          !(y >= hollowStartY && y < hollowStartY + hollowHeight);
+        while (cluster.length < clusterSize) {
+          const source = cluster[Math.floor(tileNoise(rx, ry, 127 + cluster.length) * cluster.length)];
+          const candidates = [
+            { x: source.x + 1, y: source.y },
+            { x: source.x - 1, y: source.y },
+            { x: source.x, y: source.y + 1 },
+            { x: source.x, y: source.y - 1 },
+          ].filter(({ x, y }) => isValid(x, y) && !occupied.has(keyFor(x, y)));
+          if (!candidates.length) break;
+          const next = candidates[Math.floor(tileNoise(rx, ry, 131 + cluster.length) * candidates.length)];
+          cluster.push(next);
+          occupied.add(keyFor(next.x, next.y));
+        }
+        for (const { x, y } of cluster) {
+          if (!isValid(x, y)) continue;
+          tiles[x][y] = oreType;
+        }
       }
     }
 

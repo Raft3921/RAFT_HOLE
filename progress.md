@@ -23,3 +23,4 @@ Progress:
 - Added the new image assets to the repository commit set, including `assets/coal.png`, `assets/biotite.png`, `assets/agate.png`, and `assets/quartz.png`.
 - Reworked the inventory gauge fill to use solid colored square blocks instead of resource images. Added `quartz` as a sixth stored resource layer so the gauge can show the requested `C7E1EA` color alongside the other materials.
 - Clarified the gauge behavior: it is now a single stack that fills from the bottom upward regardless of resource type, with one combined capacity shared by all block types.
+- Changed ore generation from isolated single tiles to 1-5 block clusters so ores are easier to discover in the large stone layer.
