@@ -25,3 +25,4 @@ Progress:
 - Clarified the gauge behavior: it is now a single stack that fills from the bottom upward regardless of resource type, with one combined capacity shared by all block types.
 - Changed ore generation from isolated single tiles to 1-5 block clusters so ores are easier to discover in the large stone layer.
 - Increased ore frequency further by allowing up to two clustered ore deposits per stone-region roll, since the stone layer is large enough that sparse single clusters were still hard to find.
+- Relaxed the horizontal wall bounce lock so it only suppresses pushing further into a wall, not all lateral movement. Also kept the climb animation active while descending during climbing movement.

@@ -566,7 +566,7 @@
     const bumpDigProgress = new Map(); // key -> { value, cooldown }
     const placedTiles = new Set(); // tracks player-placed blocks
     let facingLockTimer = 0;
-    const bounceLock = { active: false, startX: 0 };
+    const bounceLock = { active: false, startX: 0, direction: 0 };
     let crouchSmashTimer = 0;
     const dragState = {
       active: false,
@@ -827,16 +827,18 @@
     }
 
     function handleInput(dt) {
-      if (bounceLock.active) {
-        const moved = Math.abs(player.x - bounceLock.startX);
-        if (moved < 0.4) {
-          return;
-        }
-        bounceLock.active = false;
-      }
       const targetAccel = keys.has("KeyA") || keys.has("ArrowLeft") ? -1 : 0;
       const targetAccelRight = keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0;
-      const moveDir = targetAccel + targetAccelRight;
+      let moveDir = targetAccel + targetAccelRight;
+      if (bounceLock.active) {
+        const movedAway = Math.abs(player.x - bounceLock.startX) >= 0.2;
+        if (movedAway || moveDir === -bounceLock.direction) {
+          bounceLock.active = false;
+          bounceLock.direction = 0;
+        } else if (moveDir === bounceLock.direction) {
+          moveDir = 0;
+        }
+      }
       const shiftHeld = keys.has("ShiftLeft") || keys.has("ShiftRight");
       const speedPower = getDigPower();
       const accelMag = (shiftHeld ? dashAccel : moveAccel) * speedPower;
@@ -890,6 +892,7 @@
             if (!player.climbing) {
               bounceLock.active = true;
               bounceLock.startX = player.x;
+              bounceLock.direction = 1;
             }
             break;
           }
@@ -910,6 +913,7 @@
             if (!player.climbing) {
               bounceLock.active = true;
               bounceLock.startX = player.x;
+              bounceLock.direction = -1;
             }
             break;
           }
@@ -1605,6 +1609,7 @@
       const speed = Math.abs(player.vx);
       const grounded = player.onGround;
       const crouchInput = keys.has("KeyS") || keys.has("ArrowDown") || keys.has("ControlLeft") || keys.has("ControlRight");
+      const climbInput = keys.has("KeyW") || keys.has("KeyS") || keys.has("ArrowUp") || keys.has("ArrowDown");
       player.crouching = grounded && crouchInput;
       const diggingDown =
         digState.active &&
@@ -1615,7 +1620,7 @@
       const forceCrouch = diggingDown || crouchSmashTimer > 0 || crouchHeld;
       const nextState = player.crouching || forceCrouch
         ? "crouch"
-        : player.climbing
+        : player.climbing || (!grounded && climbInput)
         ? "climb"
         : !grounded
         ? "run"
